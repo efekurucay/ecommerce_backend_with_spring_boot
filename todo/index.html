@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<title>E‑commerce Backend TODO</title>
+<style>
+body{font-family:Arial, sans-serif;background:#f5f7fa;margin:0;padding:2rem;}
+h1{font-size:1.8rem;margin-bottom:1rem;}
+details{background:#fff;border-radius:8px;box-shadow:0 2px 4px rgba(0,0,0,.05);margin-bottom:1rem;padding:1rem;}
+summary{font-weight:600;font-size:1.1rem;cursor:pointer;}
+ul{list-style:none;margin:0;padding-left:1rem;}
+li{margin:0.4rem 0;}
+label{cursor:pointer;}
+</style>
+</head>
+<body>
+<h1>E‑commerce Backend TODO</h1>
+<p>Bu sayfayı proje dosyalarınızı oluştururken ilerlemenizi takip etmek için kullanabilirsiniz. İşaretlediğiniz görevler tarayıcınızda saklanır.</p>
+
+<details>
+<summary>Ana Uygulama Sınıfı</summary>
+<ul>
+<li><label><input type="checkbox"> com/yourapp/ecommerce/EcommerceBackendApplication.java</label></li>
+</ul>
+</details>
+<details>
+<summary>Konfigürasyon (config)</summary>
+<ul>
+<li><label><input type="checkbox"> SecurityConfig.java</label></li>
+<li><label><input type="checkbox"> OpenApiConfig.java</label></li>
+<li><label><input type="checkbox"> ObjectMapperConfig.java</label></li>
+<li><label><input type="checkbox"> WebMvcConfig.java</label></li>
+</ul>
+</details>
+<details>
+<summary>Domain Katmanı - Entity'ler</summary>
+<ul>
+<li><label><input type="checkbox"> User.java</label></li>
+<li><label><input type="checkbox"> Category.java</label></li>
+<li><label><input type="checkbox"> Product.java</label></li>
+<li><label><input type="checkbox"> Coupon.java</label></li>
+<li><label><input type="checkbox"> Order.java</label></li>
+<li><label><input type="checkbox"> OrderItem.java</label></li>
+<li><label><input type="checkbox"> Payment.java</label></li>
+<li><label><input type="checkbox"> Review.java</label></li>
+<li><label><input type="checkbox"> Notification.java</label></li>
+<li><label><input type="checkbox"> WishlistItem.java</label></li>
+<li><label><input type="checkbox"> Address.java (Opsiyonel)</label></li>
+</ul>
+</details>
+<details>
+<summary>Domain Katmanı - Enum'lar</summary>
+<ul>
+<li><label><input type="checkbox"> Role.java</label></li>
+<li><label><input type="checkbox"> AuthProvider.java</label></li>
+<li><label><input type="checkbox"> SubscriptionType.java</label></li>
+<li><label><input type="checkbox"> DiscountType.java</label></li>
+<li><label><input type="checkbox"> OrderStatus.java</label></li>
+<li><label><input type="checkbox"> PaymentStatus.java</label></li>
+<li><label><input type="checkbox"> NotificationType.java (Opsiyonel)</label></li>
+</ul>
+</details>
+<details>
+<summary>Altyapı Katmanı - Repository'ler</summary>
+<ul>
+<li><label><input type="checkbox"> UserRepository.java</label></li>
+<li><label><input type="checkbox"> CategoryRepository.java</label></li>
+<li><label><input type="checkbox"> ProductRepository.java</label></li>
+<li><label><input type="checkbox"> CouponRepository.java</label></li>
+<li><label><input type="checkbox"> OrderRepository.java</label></li>
+<li><label><input type="checkbox"> OrderItemRepository.java</label></li>
+<li><label><input type="checkbox"> PaymentRepository.java</label></li>
+<li><label><input type="checkbox"> ReviewRepository.java</label></li>
+<li><label><input type="checkbox"> NotificationRepository.java</label></li>
+<li><label><input type="checkbox"> WishlistItemRepository.java</label></li>
+</ul>
+</details>
+<details>
+<summary>Altyapı Katmanı - Güvenlik</summary>
+<ul>
+<li><label><input type="checkbox"> JwtTokenProvider.java</label></li>
+<li><label><input type="checkbox"> JwtAuthenticationFilter.java</label></li>
+<li><label><input type="checkbox"> CustomUserDetailsService.java</label></li>
+<li><label><input type="checkbox"> AuthEntryPointJwt.java (Opsiyonel)</label></li>
+<li><label><input type="checkbox"> SecurityConstants.java (Opsiyonel)</label></li>
+</ul>
+</details>
+<details>
+<summary>Altyapı Katmanı - Controller'lar</summary>
+<ul>
+<li><label><input type="checkbox"> AuthController.java</label></li>
+<li><label><input type="checkbox"> CategoryController.java</label></li>
+<li><label><input type="checkbox"> ProductController.java</label></li>
+<li><label><input type="checkbox"> CouponController.java</label></li>
+<li><label><input type="checkbox"> OrderController.java</label></li>
+<li><label><input type="checkbox"> PaymentController.java</label></li>
+<li><label><input type="checkbox"> ReviewController.java</label></li>
+<li><label><input type="checkbox"> WishlistController.java</label></li>
+<li><label><input type="checkbox"> UserController.java</label></li>
+<li><label><input type="checkbox"> NotificationController.java</label></li>
+<li><label><input type="checkbox"> AdminUserController.java</label></li>
+<li><label><input type="checkbox"> AdminProductController.java</label></li>
+<li><label><input type="checkbox"> AdminOrderController.java</label></li>
+<li><label><input type="checkbox"> AdminDashboardController.java</label></li>
+<li><label><input type="checkbox"> SellerProductController.java</label></li>
+<li><label><input type="checkbox"> SellerOrderController.java</label></li>
+<li><label><input type="checkbox"> SellerDashboardController.java</label></li>
+<li><label><input type="checkbox"> AiFeaturesController.java</label></li>
+<li><label><input type="checkbox"> SubscriptionController.java</label></li>
+</ul>
+</details>
+<details>
+<summary>Altyapı Katmanı - Adaptörler</summary>
+<ul>
+<li><label><input type="checkbox"> GeminiAiAdapter.java</label></li>
+<li><label><input type="checkbox"> OpenAiAdapter.java</label></li>
+<li><label><input type="checkbox"> StripeAdapter.java</label></li>
+<li><label><input type="checkbox"> PayPalAdapter.java</label></li>
+<li><label><input type="checkbox"> EmailAdapter.java</label></li>
+<li><label><input type="checkbox"> StorageAdapter.java</label></li>
+</ul>
+</details>
+<details>
+<summary>Uygulama Katmanı - Servis Arayüzleri</summary>
+<ul>
+<li><label><input type="checkbox"> AuthService.java</label></li>
+<li><label><input type="checkbox"> UserService.java</label></li>
+<li><label><input type="checkbox"> CategoryService.java</label></li>
+<li><label><input type="checkbox"> ProductService.java</label></li>
+<li><label><input type="checkbox"> ReviewService.java</label></li>
+<li><label><input type="checkbox"> OrderService.java</label></li>
+<li><label><input type="checkbox"> PaymentService.java</label></li>
+<li><label><input type="checkbox"> CouponService.java</label></li>
+<li><label><input type="checkbox"> WishlistService.java</label></li>
+<li><label><input type="checkbox"> NotificationService.java</label></li>
+<li><label><input type="checkbox"> SubscriptionService.java</label></li>
+<li><label><input type="checkbox"> AdminUserService.java</label></li>
+<li><label><input type="checkbox"> AdminProductService.java</label></li>
+<li><label><input type="checkbox"> AdminOrderService.java</label></li>
+<li><label><input type="checkbox"> SellerProductService.java</label></li>
+<li><label><input type="checkbox"> SellerOrderService.java</label></li>
+<li><label><input type="checkbox"> AiService.java</label></li>
+<li><label><input type="checkbox"> StorageService.java (Opsiyonel)</label></li>
+</ul>
+</details>
+<details>
+<summary>Uygulama Katmanı - Servis Implementasyonları</summary>
+<ul>
+<li><label><input type="checkbox"> AuthServiceImpl.java</label></li>
+<li><label><input type="checkbox"> UserServiceImpl.java</label></li>
+<li><label><input type="checkbox"> CategoryServiceImpl.java</label></li>
+<li><label><input type="checkbox"> ProductServiceImpl.java</label></li>
+<li><label><input type="checkbox"> ReviewServiceImpl.java</label></li>
+<li><label><input type="checkbox"> OrderServiceImpl.java</label></li>
+<li><label><input type="checkbox"> PaymentServiceImpl.java</label></li>
+<li><label><input type="checkbox"> CouponServiceImpl.java</label></li>
+<li><label><input type="checkbox"> WishlistServiceImpl.java</label></li>
+<li><label><input type="checkbox"> NotificationServiceImpl.java</label></li>
+<li><label><input type="checkbox"> SubscriptionServiceImpl.java</label></li>
+<li><label><input type="checkbox"> AdminUserServiceImpl.java</label></li>
+<li><label><input type="checkbox"> AdminProductServiceImpl.java</label></li>
+<li><label><input type="checkbox"> AdminOrderServiceImpl.java</label></li>
+<li><label><input type="checkbox"> SellerProductServiceImpl.java</label></li>
+<li><label><input type="checkbox"> SellerOrderServiceImpl.java</label></li>
+<li><label><input type="checkbox"> AiServiceImpl.java</label></li>
+<li><label><input type="checkbox"> StorageServiceImpl.java (Opsiyonel)</label></li>
+</ul>
+</details>
+<details>
+<summary>Uygulama Katmanı - DTO'lar</summary>
+<ul>
+<li><label><input type="checkbox"> LoginRequest.java</label></li>
+<li><label><input type="checkbox"> RegisterRequest.java</label></li>
+<li><label><input type="checkbox"> JwtAuthenticationResponse.java</label></li>
+<li><label><input type="checkbox"> SocialLoginRequest.java (Opsiyonel)</label></li>
+<li><label><input type="checkbox"> UserResponse.java</label></li>
+<li><label><input type="checkbox"> UserProfileUpdateRequest.java</label></li>
+<li><label><input type="checkbox"> AddressDto.java</label></li>
+<li><label><input type="checkbox"> CategoryRequest.java</label></li>
+<li><label><input type="checkbox"> CategoryResponse.java</label></li>
+<li><label><input type="checkbox"> ProductRequest.java</label></li>
+<li><label><input type="checkbox"> ProductResponse.java</label></li>
+<li><label><input type="checkbox"> ProductFilterCriteria.java</label></li>
+<li><label><input type="checkbox"> ReviewRequest.java</label></li>
+<li><label><input type="checkbox"> ReviewResponse.java</label></li>
+<li><label><input type="checkbox"> AiReviewSummaryResponse.java</label></li>
+<li><label><input type="checkbox"> OrderRequest.java</label></li>
+<li><label><input type="checkbox"> OrderResponse.java</label></li>
+<li><label><input type="checkbox"> OrderItemRequest.java</label></li>
+<li><label><input type="checkbox">
+ OrderItemResponse.java</label></li>
+<li><label><input type="checkbox"> OrderStatusUpdateRequest.java</label></li>
+<li><label><input type="checkbox"> PaymentRequest.java</label></li>
+<li><label><input type="checkbox"> PaymentResponse.java</label></li>
+<li><label><input type="checkbox"> StripeCheckoutSessionRequest.java (Opsiyonel)</label></li>
+<li><label><input type="checkbox"> CouponRequest.java</label></li>
+<li><label><input type="checkbox"> CouponResponse.java</label></li>
+<li><label><input type="checkbox"> CouponApplyRequest.java</label></li>
+<li><label><input type="checkbox"> WishlistRequest.java</label></li>
+<li><label><input type="checkbox"> WishlistResponse.java</label></li>
+<li><label><input type="checkbox"> NotificationResponse.java</label></li>
+<li><label><input type="checkbox"> NotificationReadRequest.java</label></li>
+<li><label><input type="checkbox"> SubscriptionResponse.java</label></li>
+<li><label><input type="checkbox"> SubscriptionUpgradeRequest.java</label></li>
+<li><label><input type="checkbox"> AiImageGenerationRequest.java</label></li>
+<li><label><input type="checkbox"> AiImageGenerationResponse.java</label></li>
+<li><label><input type="checkbox"> PageDto.java</label></li>
+<li><label><input type="checkbox"> ApiResponse.java</label></li>
+</ul>
+</details>
+<details>
+<summary>Uygulama Katmanı - İstisnalar</summary>
+<ul>
+<li><label><input type="checkbox"> ResourceNotFoundException.java</label></li>
+<li><label><input type="checkbox"> BadRequestException.java</label></li>
+<li><label><input type="checkbox"> UnauthorizedException.java</label></li>
+<li><label><input type="checkbox"> ForbiddenException.java</label></li>
+<li><label><input type="checkbox"> ApiException.java</label></li>
+<li><label><input type="checkbox"> GlobalExceptionHandler.java</label></li>
+</ul>
+</details>
+<details>
+<summary>Uygulama Katmanı - Mapper'lar</summary>
+<ul>
+<li><label><input type="checkbox"> UserMapper.java</label></li>
+<li><label><input type="checkbox"> ProductMapper.java</label></li>
+<li><label><input type="checkbox"> CategoryMapper.java</label></li>
+<li><label><input type="checkbox"> OrderMapper.java</label></li>
+<li><label><input type="checkbox"> ReviewMapper.java</label></li>
+</ul>
+</details>
+<script>
+const STORAGE_KEY="ecommerce_todo";
+function save(){const checks=[...document.querySelectorAll('input[type=checkbox]')].map(cb=>cb.checked);
+localStorage.setItem(STORAGE_KEY,JSON.stringify(checks));}
+function load(){const checks=JSON.parse(localStorage.getItem(STORAGE_KEY)||'[]');
+document.querySelectorAll('input[type=checkbox]').forEach((cb,i)=>{cb.checked=checks[i]||false;});}
+document.addEventListener('change',e=>{if(e.target.matches('input[type=checkbox]')) save();});
+window.addEventListener('DOMContentLoaded',load);
+</script>
+</body>
+</html>
