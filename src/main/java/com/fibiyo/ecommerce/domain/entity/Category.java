@@ -22,6 +22,19 @@ import java.util.List; // İlişkiler için
 @AllArgsConstructor // Lombok: Tüm alanları içeren constructor
 public class Category {
 
+
+    public Category getParentCategory() {
+        return this.parentCategory;
+    }
+    public Long getId() {
+        return this.id;
+    }
+    
+    public String getName() {
+        return this.name;
+    }
+    
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;

@@ -9,6 +9,7 @@ import org.springframework.data.jpa.repository.JpaSpecificationExecutor; // Sipa
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
+import java.util.Optional;
 
 @Repository
 public interface OrderRepository extends JpaRepository<Order, Long>, JpaSpecificationExecutor<Order> { // Specification Executor eklendi
@@ -27,4 +28,9 @@ public interface OrderRepository extends JpaRepository<Order, Long>, JpaSpecific
     // @Query("SELECT DISTINCT o FROM Order o JOIN o.orderItems oi JOIN oi.product p WHERE p.seller.id = :sellerId")
     // Page<Order> findOrdersBySellerProduct(@Param("sellerId") Long sellerId, Pageable pageable);
 
+    Optional<Order> findFirstByCustomerIdAndOrderItems_Product_IdAndStatusOrderByOrderDateDesc(
+        Long customerId, Long productId, OrderStatus status
+    );
+    
+        
 }

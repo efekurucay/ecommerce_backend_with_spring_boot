@@ -41,8 +41,7 @@ public class OrderItem {
     // Veritabanındaki GENERATED ALWAYS AS sütununa karşılık gelir.
     // @Formula kullanımı alternatif olabilir, ama GENERATED daha veritabanı odaklı.
     // JPA'nın bunu yönetmesi için insertable/updatable = false kullanılır.
-    @Column(name = "item_total", nullable = false, precision = 14, scale = 2,
-            insertable = false, updatable = false) // Bu alanı JPA yazmayacak/güncellemeyecek
+    @Column(name = "item_total", nullable = false, precision = 14, scale = 2) 
     private BigDecimal itemTotal; // Kalemin toplam tutarı (miktar * fiyat)
 
     // =============================================
@@ -65,6 +64,13 @@ public class OrderItem {
     @EqualsAndHashCode.Exclude
     private Product product;
 
+    @PrePersist
+@PreUpdate
+private void calculateItemTotal() {
+    if (priceAtPurchase != null && quantity != null) {
+        this.itemTotal = priceAtPurchase.multiply(BigDecimal.valueOf(quantity));
+    }
+}
 
     // --- HashCode ve Equals ---
     // Lombok @Data kullanıldı. İlişkiler exclude edildiği için genellikle sorun olmaz.

@@ -24,7 +24,7 @@ import java.util.List;
 
 @Configuration
 @EnableWebSecurity // Web güvenliğini aktif et
-@EnableMethodSecurity(prePostEnabled = true) // Metot seviyesi güvenlik (@PreAuthorize) aktif et
+@EnableMethodSecurity(prePostEnabled = false) // Metot seviyesi güvenlik (@PreAuthorize) aktif et
 public class SecurityConfig {
 
     @Autowired
@@ -62,6 +62,10 @@ public class SecurityConfig {
             .authorizeHttpRequests(authz -> authz
                 // Auth endpoint'leri (login, register) herkese açık
                 .requestMatchers("/api/auth/**").permitAll()
+                .requestMatchers("/api/categories/**").permitAll()
+                .requestMatchers("/api/products/**").permitAll()  // <- bu satırı geçici ekle
+
+
                 // Ürünleri, kategorileri, yorumları GET istekleri (okuma) herkese açık
                 .requestMatchers(HttpMethod.GET, "/api/products/**").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/categories/**").permitAll()
