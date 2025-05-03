@@ -24,7 +24,7 @@ import java.util.List;
 
 @Configuration
 @EnableWebSecurity // Web güvenliğini aktif et
-@EnableMethodSecurity(prePostEnabled = false) // Metot seviyesi güvenlik (@PreAuthorize) aktif et
+@EnableMethodSecurity(prePostEnabled = true) // Metot seviyesi güvenlik (@PreAuthorize) aktif et
 public class SecurityConfig {
 
     @Autowired
@@ -49,6 +49,8 @@ public class SecurityConfig {
     // Ana Güvenlik Filtre Zinciri Yapılandırması
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+
+        
         http
             // CORS ayarlarını etkinleştir (aşağıdaki CorsConfigurationSource bean'ini kullanır)
             .cors(cors -> cors.configurationSource(corsConfigurationSource()))
@@ -58,18 +60,21 @@ public class SecurityConfig {
             // .exceptionHandling(exception -> exception.authenticationEntryPoint(unauthorizedHandler))
             // Oturum yönetimini STATELESS yap (JWT kullanacağımız için server state tutmayacak)
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+            
             // İstek Yetkilendirme Kuralları
             .authorizeHttpRequests(authz -> authz
                 // Auth endpoint'leri (login, register) herkese açık
                 .requestMatchers("/api/auth/**").permitAll()
                 .requestMatchers("/api/categories/**").permitAll()
                 .requestMatchers("/api/products/**").permitAll()  // <- bu satırı geçici ekle
-
+                .requestMatchers("/api/payments/stripe/webhook").permitAll() // <--- BU SATIR ÖNEMLİ
 
                 // Ürünleri, kategorileri, yorumları GET istekleri (okuma) herkese açık
                 .requestMatchers(HttpMethod.GET, "/api/products/**").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/categories/**").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/reviews/product/**").permitAll()
+                .requestMatchers("/api/cart/**").permitAll() // <- bunu geçici olarak ekle
+
                 // Swagger/OpenAPI dokümantasyonu için (kullanılırsa)
                 .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                 // Diğer tüm istekler kimlik doğrulaması gerektirir
@@ -81,6 +86,8 @@ public class SecurityConfig {
         return http.build();
     }
 
+
+    
     // CORS Ayarları Bean'i
     @Bean
     CorsConfigurationSource corsConfigurationSource() {

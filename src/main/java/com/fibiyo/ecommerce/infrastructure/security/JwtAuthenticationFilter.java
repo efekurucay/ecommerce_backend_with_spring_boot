@@ -30,16 +30,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     @Autowired
     private UserDetailsService userDetailsService;
 
-    @Override // forbidden hatası gidermek için 403 postman
+    @Override
     protected boolean shouldNotFilter(HttpServletRequest request) throws ServletException {
-
-        logger.info("Skipping JWT filter for path: {}", request.getServletPath());
-
         String path = request.getServletPath();
         return path.startsWith("/api/auth/");
     }
-    
-
 
     @Override
     protected void doFilterInternal(HttpServletRequest request,

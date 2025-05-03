@@ -16,13 +16,17 @@ import com.fibiyo.ecommerce.infrastructure.persistence.repository.OrderRepositor
 import com.fibiyo.ecommerce.infrastructure.persistence.repository.ProductRepository;
 import com.fibiyo.ecommerce.infrastructure.persistence.repository.ReviewRepository;
 import com.fibiyo.ecommerce.infrastructure.persistence.repository.UserRepository;
+import com.fibiyo.ecommerce.infrastructure.persistence.specification.ReviewSpecifications;
+
 // OrderRepository (satın alma kontrolü için) gerekebilir
+import static com.fibiyo.ecommerce.infrastructure.persistence.specification.ReviewSpecifications.*; // Specification'ı import et
+import org.springframework.data.jpa.domain.Specification; // Specification import
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
-import org.springframework.data.jpa.domain.Specification;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
@@ -157,89 +161,130 @@ orderRepository.findFirstByCustomerIdAndOrderItems_Product_IdAndStatusOrderByOrd
     }
 
     // Ürünün rating ve count alanlarını güncelleyen private metot
+    // Ürün puan/sayısını güncelleyen private metot (Önceki adımda eklenmişti, tekrar kontrol et)
     private void updateProductRatingAndCount(Long productId) {
-         try {
-            // Not: Ayrı transaction'larda yapılabilir veya lock mekanizması düşünülebilir çok yüksek yük altında.
-             // Bu metodun transactional olması @Transactional'den dolayı yeterli olmalı.
-             BigDecimal avgRating = reviewRepository.calculateAverageRatingByProductId(productId);
-             long reviewCount = reviewRepository.countByProductIdAndIsApprovedTrue(productId);
-
-            Product product = productRepository.findById(productId).orElse(null); // Varsa bul
-             if(product != null) {
-                 product.setAverageRating(avgRating != null ? avgRating : BigDecimal.ZERO);
-                 product.setReviewCount((int) reviewCount);
-                 productRepository.save(product);
-                  logger.info("Updated product ID: {} rating to {} and review count to {}", productId, product.getAverageRating(), product.getReviewCount());
-             }
-         } catch (Exception e) {
-             logger.error("Error updating product rating/count for product ID {}: {}", productId, e.getMessage(), e);
-             // Bu hata ana işlemi durdurmamalı ama loglanmalı.
-         }
-     }
+        try {
+            BigDecimal avgRating = reviewRepository.calculateAverageRatingByProductId(productId);
+            long reviewCount = reviewRepository.countByProductIdAndIsApprovedTrue(productId);
+            productRepository.findById(productId).ifPresent(product -> { // ifPresent ile null check daha temiz
+                product.setAverageRating(avgRating != null ? avgRating : BigDecimal.ZERO);
+                product.setReviewCount((int) reviewCount);
+                productRepository.save(product); // Transaction içinde olduğumuz için save yeterli
+                logger.info("Updated product ID: {} rating to {} and review count to {}", productId, product.getAverageRating(), product.getReviewCount());
+            });
+        } catch (Exception e) {
+            logger.error("Error updating product rating/count for product ID {}: {}", productId, e.getMessage(), e);
+        }
+    }
 
     // --- Admin Operations Implementation ---
 
+  
     @Override
-    @Transactional(readOnly = true)
+    @Transactional(readOnly = true) // Sadece okuma işlemi
     public Page<ReviewResponse> findAllReviews(Pageable pageable, Boolean isApproved) {
+         // 1. Yetki Kontrolü
          checkAdminRole();
-          logger.debug("Admin finding all reviews. IsApproved filter: {}", isApproved);
-          Specification<Review> spec = Specification.where(null);
-          if (isApproved != null) {
-             spec = spec.and(isApproved(isApproved));
+          logger.debug("Admin fetching all reviews. IsApproved filter: {}", isApproved);
+
+         // 2. Specification ile Filtreleme
+         Specification<Review> spec = Specification.where(null); // Başlangıç filtresi (tümünü getir)
+         if (isApproved != null) {
+              // ReviewSpecifications içindeki isApproved metodunu kullan
+              spec = spec.and(ReviewSpecifications.isApproved(isApproved));
          }
-         Page<Review> reviewPage = reviewRepository.findAll(spec, pageable);
-         return reviewPage.map(reviewMapper::toReviewResponse);
+         // İleride product ID, customer ID veya tarih aralığı filtreleri de eklenebilir.
+         // if(productId != null) { spec = spec.and(ReviewSpecifications.hasProduct(productId)); }
+
+         // 3. Repository Çağrısı
+          Page<Review> reviewPage = reviewRepository.findAll(spec, pageable); // JpaSpecificationExecutor sayesinde çalışır
+
+         // 4. DTO Dönüşümü
+          return reviewPage.map(reviewMapper::toReviewResponse); // Sayfayı DTO sayfasına dönüştür
     }
 
     @Override
-    @Transactional
+    @Transactional // Veri güncelleme
     public ReviewResponse approveReview(Long reviewId) {
-        checkAdminRole();
-         logger.info("Admin approving review ID: {}", reviewId);
+        // 1. Yetki Kontrolü
+         checkAdminRole();
+        logger.info("Admin approving review ID: {}", reviewId);
+
+         // 2. Review'ı Bul
          Review review = reviewRepository.findById(reviewId)
                 .orElseThrow(() -> new ResourceNotFoundException("Review not found with id: " + reviewId));
-        boolean needsRatingUpdate = !review.isApproved(); // Eğer zaten onaylıysa ratingi tekrar hesaplamaya gerek yok
-         review.setApproved(true);
-         Review savedReview = reviewRepository.save(review);
-         logger.info("Review ID: {} approved by admin.", reviewId);
-          if(needsRatingUpdate && savedReview.getProduct() != null) {
-            updateProductRatingAndCount(savedReview.getProduct().getId());
+
+         // 3. İşlemi Yap ve Kaydet
+         boolean needsRatingUpdate = !review.isApproved(); // Önceden onaylı değilse puanı güncellemek gerekecek
+         if(needsRatingUpdate){
+              review.setApproved(true);
+             review = reviewRepository.save(review); // Güncellenmiş review'ı alalım
+             logger.info("Review ID: {} approved by admin.", reviewId);
+             // 4. Ürün Puanını Güncelle (Eğer durum değiştiyse)
+             if(review.getProduct() != null) {
+                 updateProductRatingAndCount(review.getProduct().getId());
+             }
+          } else {
+              logger.warn("Review ID: {} was already approved.", reviewId); // Zaten onaylıysa tekrar işlem yapma
+          }
+
+        // 5. Yanıtı Dön
+        return reviewMapper.toReviewResponse(review);
+    }
+    @Override
+    @Transactional // Veri güncelleme
+    public ReviewResponse rejectReview(Long reviewId) {
+         // 1. Yetki Kontrolü
+        checkAdminRole();
+         logger.warn("Admin rejecting (disapproving) review ID: {}", reviewId);
+
+        // 2. Review'ı Bul
+        Review review = reviewRepository.findById(reviewId)
+               .orElseThrow(() -> new ResourceNotFoundException("Review not found with id: " + reviewId));
+
+         // 3. İşlemi Yap ve Kaydet
+        boolean needsRatingUpdate = review.isApproved(); // Önceden onaylı ise puanı güncellemek gerekecek
+        if (needsRatingUpdate) {
+            review.setApproved(false); // Onayı kaldır
+             review = reviewRepository.save(review);
+            logger.info("Review ID: {} disapproved by admin.", reviewId);
+             // 4. Ürün Puanını Güncelle (Eğer durum değiştiyse)
+            if(review.getProduct() != null){
+                 updateProductRatingAndCount(review.getProduct().getId());
+            }
+        } else {
+             logger.warn("Review ID: {} was already disapproved.", reviewId); // Zaten onaylı değilse tekrar işlem yapma
         }
-         return reviewMapper.toReviewResponse(savedReview);
+
+
+         // 5. Yanıtı Dön
+        return reviewMapper.toReviewResponse(review);
     }
 
-    @Override
-    @Transactional
-    public ReviewResponse rejectReview(Long reviewId) {
-         checkAdminRole();
-         logger.warn("Admin rejecting review ID: {}", reviewId);
-         Review review = reviewRepository.findById(reviewId)
-                .orElseThrow(() -> new ResourceNotFoundException("Review not found with id: " + reviewId));
-        boolean needsRatingUpdate = review.isApproved(); // Eğer onaylı idiyse ve şimdi reddediliyorsa ratingi güncellemek lazım
-         review.setApproved(false); // Onayı kaldır
-         Review savedReview = reviewRepository.save(review);
-        logger.info("Review ID: {} rejected (disapproved) by admin.", reviewId);
-         if(needsRatingUpdate && savedReview.getProduct() != null) {
-             updateProductRatingAndCount(savedReview.getProduct().getId());
-         }
-         return reviewMapper.toReviewResponse(savedReview);
-     }
 
 
     @Override
-    @Transactional
+    @Transactional // Veri silme
     public void deleteReviewByAdmin(Long reviewId) {
+        // 1. Yetki Kontrolü
         checkAdminRole();
          logger.warn("Admin deleting review ID: {}", reviewId);
-          Review review = reviewRepository.findById(reviewId)
-                .orElseThrow(() -> new ResourceNotFoundException("Review not found with id: " + reviewId));
-          Long productId = review.getProduct() != null ? review.getProduct().getId() : null;
-          reviewRepository.delete(review);
-        logger.info("Review ID: {} deleted by admin.", reviewId);
-         if(productId != null){
-              updateProductRatingAndCount(productId); // Puanı güncelle
-          }
+
+        // 2. Review'ı Bul (Silmeden önce varlığını kontrol etmek iyi pratiktir)
+        Review review = reviewRepository.findById(reviewId)
+               .orElseThrow(() -> new ResourceNotFoundException("Review not found with id: " + reviewId));
+
+        Long productId = review.getProduct() != null ? review.getProduct().getId() : null; // Ürün ID'sini al (varsa)
+
+         // 3. Silme İşlemi
+        reviewRepository.delete(review);
+         logger.info("Review ID: {} deleted by admin.", reviewId);
+
+         // 4. Ürün Puanını Güncelle (Eğer silinen yorum onaylı idiyse ve ürün varsa)
+        if(productId != null && review.isApproved()){
+             updateProductRatingAndCount(productId);
+         }
     }
+
 }
 

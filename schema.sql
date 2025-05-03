@@ -258,3 +258,35 @@ CREATE INDEX idx_notifications_is_read ON `notifications`(`is_read`);
 -- Wishlist Items
 CREATE INDEX idx_wishlist_items_user_id ON `wishlist_items`(`user_id`);
 CREATE INDEX idx_wishlist_items_product_id ON `wishlist_items`(`product_id`);
+
+-- =============================================
+-- Alışveriş Sepetleri
+-- =============================================
+CREATE TABLE `carts` (
+  `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
+  `user_id` BIGINT NOT NULL UNIQUE, -- Her kullanıcının bir sepeti olur
+  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+  `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP NOT NULL,
+
+  FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE -- Kullanıcı silinirse sepeti de silinir
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- =============================================
+-- Sepet Kalemleri (Cart Items)
+-- =============================================
+CREATE TABLE `cart_items` (
+  `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
+  `cart_id` BIGINT NOT NULL,
+  `product_id` BIGINT NOT NULL,
+  `quantity` INT NOT NULL CHECK (`quantity` > 0),
+  `added_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL, -- Öğenin sepete eklenme zamanı
+
+  FOREIGN KEY (`cart_id`) REFERENCES `carts`(`id`) ON DELETE CASCADE, -- Sepet silinirse kalemleri de silinir
+  FOREIGN KEY (`product_id`) REFERENCES `products`(`id`) ON DELETE CASCADE, -- Ürün silinirse sepetten de kalkmalı mı? (CASCADE mantıklı)
+  UNIQUE KEY `uk_cart_item_cart_product` (`cart_id`, `product_id`) -- Aynı sepete aynı üründen bir satır olmalı
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ... (İndexler vb.) ...
+-- Yeni Index'ler
+CREATE INDEX idx_cart_items_cart_id ON `cart_items`(`cart_id`);
+CREATE INDEX idx_cart_items_product_id ON `cart_items`(`product_id`);
