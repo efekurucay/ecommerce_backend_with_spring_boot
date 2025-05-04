@@ -38,15 +38,15 @@ public class AdminUserServiceImpl implements AdminUserService {
                  .orElseThrow(() -> new ResourceNotFoundException("Current Admin user not found: " + username));
     }
 
-    private void checkAdminRole() {
-         // Aslında bu servis sadece Admin tarafından çağrılacağı için @PreAuthorize yeterli olabilir,
-         // ama çift kontrol güvenlik açısından iyidir.
-         User currentUser = getCurrentUser();
-        if (currentUser.getRole() != Role.ADMIN) {
-            logger.warn("Non-admin user '{}' attempted admin user operation.", currentUser.getUsername());
-            throw new ForbiddenException("Bu işlemi gerçekleştirmek için Admin yetkisine sahip olmalısınız.");
-        }
-     }
+    // private void checkAdminRole() {
+    //      // Aslında bu servis sadece Admin tarafından çağrılacağı için @PreAuthorize yeterli olabilir,
+    //      // ama çift kontrol güvenlik açısından iyidir.
+    //      User currentUser = getCurrentUser();
+    //     if (currentUser.getRole() != Role.ADMIN) {
+    //         logger.warn("Non-admin user '{}' attempted admin user operation.", currentUser.getUsername());
+    //         throw new ForbiddenException("Bu işlemi gerçekleştirmek için Admin yetkisine sahip olmalısınız.");
+    //     }
+    //  }
 
 
     @Autowired
@@ -101,10 +101,17 @@ public class AdminUserServiceImpl implements AdminUserService {
                 .orElseThrow(() -> new ResourceNotFoundException("User not found with id: " + userId));
 
          // Admin kendi hesabını pasifleştirmemeli? (Opsiyonel kontrol)
-         // User currentUser = getCurrentUser(); if (currentUser.getId().equals(userId) && !isActive) {...}
+         User currentUser = getCurrentUser();
+         if (currentUser.getId().equals(userId) && !isActive) {
+             logger.warn("Admin attempted to deactivate their own account. Action blocked.");
+             throw new BadRequestException("Admin kendi hesabını pasifleştiremez.");
+         }
+ 
+
 
          if (user.getRole() == Role.ADMIN && !isActive) {
              logger.warn("Admin attempted to deactivate another admin (ID: {}). This might be risky.", userId);
+
              // Başka adminleri pasifleştirmek engellenebilir veya loglanabilir.
          }
 
@@ -130,10 +137,11 @@ public class AdminUserServiceImpl implements AdminUserService {
              return userMapper.toUserResponse(user); // Değişiklik yoksa direkt dön
          }
 
-        // Başka admin kalmayacaksa rol değişikliği engellenebilir (İleri seviye)
-        // if (user.getRole() == Role.ADMIN && userRepository.countByRole(Role.ADMIN) <= 1) {
-         //     throw new BadRequestException("Cannot change the role of the last admin.");
-        // }
+              if (user.getRole() == Role.ADMIN && newRole != Role.ADMIN && userRepository.countByRole(Role.ADMIN) <= 1) {
+            logger.error("Attempt to demote the last remaining admin. Action blocked.");
+            throw new BadRequestException("Sistemde en az bir admin kalmalı. Son admin'in rolü değiştirilemez.");
+        }
+
 
          logger.warn("Changing role of user ID: {} from {} to {}", userId, user.getRole(), newRole);
         user.setRole(newRole);

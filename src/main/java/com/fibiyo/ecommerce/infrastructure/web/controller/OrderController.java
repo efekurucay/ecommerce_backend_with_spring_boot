@@ -87,7 +87,8 @@ public class OrderController {
     }
 
      @GetMapping("/{orderId}") // ID ile herhangi bir siparişin detayını gör (Admin/Seller)
-     @PreAuthorize("hasRole('ADMIN') or hasRole('SELLER')") // Seller sadece kendi ürünü olanı görmeli - bu kontrol serviste!
+     @PreAuthorize("hasRole('ADMIN') or @orderSecurity.hasPermission(#orderId, authentication)") 
+ // Seller sadece kendi ürünü olanı görmeli - bu kontrol serviste!
      public ResponseEntity<OrderResponse> getOrderDetails(@PathVariable Long orderId) {
          logger.info("GET /api/orders/{} requested (Admin/Seller)", orderId);
          // TODO: Seller'ın sadece kendi ürününü içeren siparişi görme kontrolü serviste eklenmeli!
@@ -96,16 +97,17 @@ public class OrderController {
      }
 
      @PatchMapping("/{orderId}/status") // Sipariş durumunu güncelle (Admin/Seller)
-     @PreAuthorize("hasRole('ADMIN') or hasRole('SELLER')")
+     @PreAuthorize("hasRole('ADMIN') or @orderSecurity.hasPermission(#orderId, authentication)") 
      public ResponseEntity<OrderResponse> updateOrderStatus(@PathVariable Long orderId, @RequestParam OrderStatus status) {
          logger.info("PATCH /api/orders/{}/status requested with status: {}", orderId, status);
-         // TODO: Seller'ın sadece kendi ürününü içeren siparişin durumunu değiştirebilme kontrolü serviste!
+         // TODO: Seller'ın sadece kendi ürününü içeren siparişin durumunu değiştirebilme kontrolü serviste! YAPTIM
+
          OrderResponse updatedOrder = orderService.updateOrderStatus(orderId, status);
          return ResponseEntity.ok(updatedOrder);
      }
 
      @PatchMapping("/{orderId}/tracking") // Kargo takip no ekle (Admin/Seller)
-      @PreAuthorize("hasRole('ADMIN') or hasRole('SELLER')")
+     @PreAuthorize("hasRole('ADMIN') or @orderSecurity.hasPermission(#orderId, authentication)") // bu gelecek
      public ResponseEntity<OrderResponse> addTrackingNumber(
             @PathVariable Long orderId,
             @RequestParam @NotBlank @Size(max = 100) String trackingNumber) {

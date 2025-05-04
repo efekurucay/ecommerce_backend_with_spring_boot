@@ -62,12 +62,12 @@ public class ReviewServiceImpl implements ReviewService {
          return userRepository.findByUsername(username)
                   .orElseThrow(() -> new ResourceNotFoundException("Current user not found in database: " + username));
       }
-       private void checkAdminRole() {
-          User currentUser = getCurrentUser();
-          if (currentUser.getRole() != Role.ADMIN) {
-             throw new ForbiddenException("Bu işlem için Admin yetkisi gerekli.");
-         }
-       }
+    //    private void checkAdminRole() {
+    //       User currentUser = getCurrentUser();
+    //       if (currentUser.getRole() != Role.ADMIN) {
+    //          throw new ForbiddenException("Bu işlem için Admin yetkisi gerekli.");
+    //      }
+    //    } methodlarda kullanıyorduk fakat reviewcontrollerda zaten preauth ile kontrol ediliyor
 
 
     @Autowired
@@ -184,7 +184,6 @@ orderRepository.findFirstByCustomerIdAndOrderItems_Product_IdAndStatusOrderByOrd
     @Transactional(readOnly = true) // Sadece okuma işlemi
     public Page<ReviewResponse> findAllReviews(Pageable pageable, Boolean isApproved) {
          // 1. Yetki Kontrolü
-         checkAdminRole();
           logger.debug("Admin fetching all reviews. IsApproved filter: {}", isApproved);
 
          // 2. Specification ile Filtreleme
@@ -207,7 +206,6 @@ orderRepository.findFirstByCustomerIdAndOrderItems_Product_IdAndStatusOrderByOrd
     @Transactional // Veri güncelleme
     public ReviewResponse approveReview(Long reviewId) {
         // 1. Yetki Kontrolü
-         checkAdminRole();
         logger.info("Admin approving review ID: {}", reviewId);
 
          // 2. Review'ı Bul
@@ -235,7 +233,6 @@ orderRepository.findFirstByCustomerIdAndOrderItems_Product_IdAndStatusOrderByOrd
     @Transactional // Veri güncelleme
     public ReviewResponse rejectReview(Long reviewId) {
          // 1. Yetki Kontrolü
-        checkAdminRole();
          logger.warn("Admin rejecting (disapproving) review ID: {}", reviewId);
 
         // 2. Review'ı Bul
@@ -267,7 +264,6 @@ orderRepository.findFirstByCustomerIdAndOrderItems_Product_IdAndStatusOrderByOrd
     @Transactional // Veri silme
     public void deleteReviewByAdmin(Long reviewId) {
         // 1. Yetki Kontrolü
-        checkAdminRole();
          logger.warn("Admin deleting review ID: {}", reviewId);
 
         // 2. Review'ı Bul (Silmeden önce varlığını kontrol etmek iyi pratiktir)

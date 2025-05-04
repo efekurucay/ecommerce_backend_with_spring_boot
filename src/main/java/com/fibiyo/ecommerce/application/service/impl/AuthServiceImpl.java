@@ -1,5 +1,6 @@
 package com.fibiyo.ecommerce.application.service.impl; // veya com.fibiyo.ecommerce.application.service;
-
+import com.fibiyo.ecommerce.application.service.NotificationService; // eğer ekli değilse
+import com.fibiyo.ecommerce.domain.enums.NotificationType; // bu eklenecek
 import com.fibiyo.ecommerce.application.dto.JwtAuthenticationResponse;
 import com.fibiyo.ecommerce.application.dto.LoginRequest;
 import com.fibiyo.ecommerce.application.dto.RegisterRequest;
@@ -35,16 +36,20 @@ public class AuthServiceImpl implements AuthService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider tokenProvider;
+    private final NotificationService notificationService; // bu eklenecek
+
 
     @Autowired
     public AuthServiceImpl(AuthenticationManager authenticationManager,
                            UserRepository userRepository,
                            PasswordEncoder passwordEncoder,
-                           JwtTokenProvider tokenProvider) {
+                           JwtTokenProvider tokenProvider,
+                           NotificationService notificationService) { // Eğer NotificationService kullanıyorsanız
         this.authenticationManager = authenticationManager;
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.tokenProvider = tokenProvider;
+        this.notificationService = notificationService; // Eğer NotificationService kullanıyorsanız
     }
 
     @Override
@@ -131,7 +136,12 @@ public class AuthServiceImpl implements AuthService {
         logger.info("User '{}' registered successfully with role {}.", savedUser.getUsername(), savedUser.getRole());
 
         // Burada kayıt sonrası email gönderme gibi işlemler de eklenebilir (Async olarak)
-
+        notificationService.createNotification(
+            savedUser,
+            "Kayıt işleminiz başarıyla tamamlandı. Hoş geldiniz!",
+            "/profile",
+            NotificationType.SYSTEM
+        );
         return savedUser; // Kaydedilmiş User nesnesini dön (ID vb. içerir)
     }
 }

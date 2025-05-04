@@ -1,5 +1,5 @@
 package com.fibiyo.ecommerce.infrastructure.persistence.repository;
-
+import com.fibiyo.ecommerce.domain.enums.Role;
 import com.fibiyo.ecommerce.domain.entity.User;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor; // Dinamik sorgular için
@@ -24,6 +24,8 @@ public interface UserRepository extends JpaRepository<User, Long>, JpaSpecificat
     Boolean existsByUsername(String username);
 
     Boolean existsByEmail(String email);
+    long countByRole(Role role); // bu eklenecek
+
 }
 
 //Not: Kullanıcıları filtrelemek (rol, abonelik vb.) gerekebileceği için JpaSpecificationExecutor ekledik.

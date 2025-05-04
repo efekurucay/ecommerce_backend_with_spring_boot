@@ -15,6 +15,8 @@ import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
@@ -38,9 +40,17 @@ public class ReviewController {
             @PathVariable Long productId,
             // Yorumları oluşturulma tarihine göre en yeniden eskiye sırala
             @PageableDefault(size = 5, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable,
-             @RequestParam(defaultValue = "true") boolean approvedOnly) { // Varsayılan olarak sadece onaylıları getir
+             @RequestParam(defaultValue = "true") boolean approvedOnly) { 
+            
+                
+                
+                // Varsayılan olarak sadece onaylıları getir
         logger.info("GET /api/reviews/product/{} requested. ApprovedOnly: {}", productId, approvedOnly);
          // TODO: Admin rolü yoksa approvedOnly=true zorunlu kılınabilir.
+         //Admin olmayan kullanıcıların approvedOnly=false ile tüm yorumları çekmemesi için:
+         if (!SecurityContextHolder.getContext().getAuthentication().getAuthorities().contains(new SimpleGrantedAuthority("ROLE_ADMIN"))) {
+            approvedOnly = true;
+        }
         Page<ReviewResponse> reviews = reviewService.findReviewsByProduct(productId, pageable, approvedOnly);
         return ResponseEntity.ok(reviews);
     }

@@ -1,4 +1,6 @@
 package com.fibiyo.ecommerce.application.service.impl;
+import com.fibiyo.ecommerce.application.service.NotificationService; // Eğer zaten inject edildiyse tekrar eklemeye gerek yok
+import com.fibiyo.ecommerce.domain.enums.NotificationType; // bu eklenecek
 
 import com.fibiyo.ecommerce.application.dto.ProductRequest;
 import com.fibiyo.ecommerce.application.dto.ProductResponse;
@@ -36,6 +38,7 @@ public class ProductServiceImpl implements ProductService {
     private final CategoryRepository categoryRepository;
     private final UserRepository     userRepository;
     private final ProductMapper      productMapper;
+private final NotificationService notificationService; // bu eklenecek
 
     /* ---------- Helper ---------- */
 
@@ -122,6 +125,17 @@ public class ProductServiceImpl implements ProductService {
         }
 
         productMapper.updateProductFromRequest(req, product);
+
+        // bu eklenecek
+if (!product.getName().equals(req.getName())) {
+    String newSlug = SlugUtils.toSlug(req.getName());
+    if (productRepository.existsBySlug(newSlug)) {
+        throw new BadRequestException("Aynı isimle başka bir ürün zaten var. Lütfen farklı bir ad girin.");
+    }
+    product.setSlug(newSlug);
+}
+
+
         return productMapper.toProductResponse(productRepository.save(product));
     }
 
@@ -181,8 +195,23 @@ public class ProductServiceImpl implements ProductService {
         assertAdmin();
         Product product = productRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Ürün bulunamadı: " + id));
+
+                
         product.setApproved(true);
+
+        Product saved = productRepository.save(product);
+
+// bu eklenecek
+notificationService.createNotification(
+    saved.getSeller(),
+    "Ürününüz onaylandı: " + saved.getName(),
+    "/seller/products",
+    NotificationType.PRODUCT_UPDATE
+);
         return productMapper.toProductResponse(productRepository.save(product));
+
+
+
     }
 
     @Override @Transactional

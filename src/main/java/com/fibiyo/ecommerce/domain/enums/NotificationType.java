@@ -13,4 +13,5 @@ public enum NotificationType {
     SUBSCRIPTION_UPDATE, // Abonelik durumu (örn: süresi doluyor)
     IMAGE_GEN_UPDATE,    // AI Görüntü hakkı güncellemesi (Satıcı için)
     GENERIC              // Genel bildirim
+, PRODUCT_UPDATE
 }

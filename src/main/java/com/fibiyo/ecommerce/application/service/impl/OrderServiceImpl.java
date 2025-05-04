@@ -68,27 +68,27 @@ public class OrderServiceImpl implements OrderService {
                 .orElseThrow(() -> new ResourceNotFoundException("Current authenticated user not found: " + username));
     }
 
-     private void checkAdminRole() {
-         User currentUser = getCurrentUser();
-         if (currentUser.getRole() != Role.ADMIN) {
-             logger.warn("User '{}' (Role: {}) attempted an admin-only order operation.", currentUser.getUsername(), currentUser.getRole());
-             throw new ForbiddenException("Bu işlemi gerçekleştirmek için Admin yetkisine sahip olmalısınız.");
-         }
-     }
+    //  private void checkAdminRole() {
+    //      User currentUser = getCurrentUser();
+    //      if (currentUser.getRole() != Role.ADMIN) {
+    //          logger.warn("User '{}' (Role: {}) attempted an admin-only order operation.", currentUser.getUsername(), currentUser.getRole());
+    //          throw new ForbiddenException("Bu işlemi gerçekleştirmek için Admin yetkisine sahip olmalısınız.");
+    //      }
+    //  }
 
       // Satıcının belirli bir siparişi yönetme yetkisi var mı kontrolü (Ürün bazlı)
-     private void checkSellerPermissionForOrder(User seller, Order order) {
-          if (seller.getRole() == Role.ADMIN) return; // Admin her şeye erişebilir
-          if (seller.getRole() != Role.SELLER) throw new ForbiddenException("Bu işlem için Seller veya Admin yetkisi gerekli.");
+    //  private void checkSellerPermissionForOrder(User seller, Order order) {
+    //       if (seller.getRole() == Role.ADMIN) return; // Admin her şeye erişebilir
+    //       if (seller.getRole() != Role.SELLER) throw new ForbiddenException("Bu işlem için Seller veya Admin yetkisi gerekli.");
 
-          boolean sellerHasProductInOrder = order.getOrderItems().stream()
-                  .anyMatch(item -> item.getProduct() != null && item.getProduct().getSeller().getId().equals(seller.getId()));
+    //       boolean sellerHasProductInOrder = order.getOrderItems().stream()
+    //               .anyMatch(item -> item.getProduct() != null && item.getProduct().getSeller().getId().equals(seller.getId()));
 
-          if (!sellerHasProductInOrder) {
-              logger.warn("Seller ID {} attempted to access/modify Order ID {} which contains none of their products.", seller.getId(), order.getId());
-             throw new ForbiddenException("Bu siparişi yönetme yetkiniz yok (size ait ürün içermiyor).");
-          }
-      }
+    //       if (!sellerHasProductInOrder) {
+    //           logger.warn("Seller ID {} attempted to access/modify Order ID {} which contains none of their products.", seller.getId(), order.getId());
+    //          throw new ForbiddenException("Bu siparişi yönetme yetkiniz yok (size ait ürün içermiyor).");
+    //       }
+    //   }
 
 
     private String convertAddressToJson(AddressDto addressDto) {
@@ -249,13 +249,14 @@ public class OrderServiceImpl implements OrderService {
         logger.info("Order ID: {} created successfully for customer ID: {}. Final Amount: {}",
                    savedOrder.getId(), customer.getId(), savedOrder.getFinalAmount()); // finalAmount'ı kontrol et!
 
-        // TODO: Bildirim Gönderme (Order Placed)
-        // notificationService.createNotification(customer, "Siparişiniz #" + savedOrder.getId() + " alındı.", "/orders/my/" + savedOrder.getId(), NotificationType.ORDER_UPDATE);
+        // Bildirim Gönderme (Order Placed)
+        notificationService.createNotification(customer, "Siparişiniz #" + savedOrder.getId() + " başarıyla oluşturuldu.", "/orders/my/" + savedOrder.getId(), NotificationType.ORDER_UPDATE); // bu eklenecek
 
         // TODO: Ödeme Başlatma (eğer otomatik olacaksa)
         // paymentService.createCheckoutSession(...);
 
         return orderMapper.toOrderResponse(savedOrder);
+        
     }
 
     @Override
@@ -332,7 +333,7 @@ public class OrderServiceImpl implements OrderService {
     @Override
     @Transactional(readOnly = true)
     public Page<OrderResponse> findAllOrders(Pageable pageable, Long customerId, OrderStatus status) {
-        checkAdminRole(); // Sadece admin tüm siparişleri görür
+      //  checkAdminRole(); // Sadece admin tüm siparişleri görür
         logger.debug("ADMIN: Fetching all orders. Customer Filter: {}, Status Filter: {}, Pageable: {}", customerId, status, pageable);
 
          Specification<Order> spec = Specification.where(OrderSpecifications.hasCustomer(customerId))
@@ -380,7 +381,7 @@ public class OrderServiceImpl implements OrderService {
                  .orElseThrow(() -> new ResourceNotFoundException("Order not found with id: " + orderId));
 
          // Yetki kontrolü: Ya Adminsin ya da sipariş senin ürününü içeriyor
-          checkSellerPermissionForOrder(currentUser, order); // Bu metod seller olmayanlar için hata fırlatır (Admin hariç)
+       //   checkSellerPermissionForOrder(currentUser, order); // Bu metod seller olmayanlar için hata fırlatır (Admin hariç)
 
           return orderMapper.toOrderResponse(order);
     }
@@ -396,7 +397,7 @@ public class OrderServiceImpl implements OrderService {
                 .orElseThrow(() -> new ResourceNotFoundException("Order not found with id: " + orderId));
 
         // Yetki Kontrolü
-        checkSellerPermissionForOrder(currentUser, order);
+     //   checkSellerPermissionForOrder(currentUser, order);
 
          // Durum Geçiş Kontrolleri (Örnek - Daha detaylı olabilir)
          OrderStatus currentStatus = order.getStatus();
@@ -476,7 +477,7 @@ public class OrderServiceImpl implements OrderService {
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new ResourceNotFoundException("Order not found with id: " + orderId));
 
-        checkSellerPermissionForOrder(currentUser, order); // Yetki kontrolü
+      //  checkSellerPermissionForOrder(currentUser, order); // Yetki kontrolü
 
         // Sipariş uygun durumda mı?
         if (!(order.getStatus() == OrderStatus.PROCESSING || order.getStatus() == OrderStatus.SHIPPED)) {

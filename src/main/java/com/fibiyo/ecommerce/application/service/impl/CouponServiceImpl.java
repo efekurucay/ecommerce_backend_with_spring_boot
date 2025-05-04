@@ -57,13 +57,13 @@ public class CouponServiceImpl implements CouponService {
                 .orElseThrow(() -> new ResourceNotFoundException("Current authenticated user not found: " + username));
     }
 
-    private void checkAdminRole() {
-        User currentUser = getCurrentUser(); // Helper metodu çağır
-        if (currentUser.getRole() != Role.ADMIN) {
-            logger.warn("User '{}' (Role: {}) attempted an admin-only coupon operation.", currentUser.getUsername(), currentUser.getRole());
-            throw new ForbiddenException("Bu işlemi gerçekleştirmek için Admin yetkisine sahip olmalısınız.");
-        }
-    }
+    // private void checkAdminRole() {
+    //     User currentUser = getCurrentUser(); // Helper metodu çağır
+    //     if (currentUser.getRole() != Role.ADMIN) {
+    //         logger.warn("User '{}' (Role: {}) attempted an admin-only coupon operation.", currentUser.getUsername(), currentUser.getRole());
+    //         throw new ForbiddenException("Bu işlemi gerçekleştirmek için Admin yetkisine sahip olmalısınız.");
+    //     }
+    // }
 
     // Kuponu yanıta çevirirken geçerlilik durumunu hesapla
     private CouponResponse mapToResponseWithStatus(Coupon coupon) {
@@ -80,7 +80,7 @@ public class CouponServiceImpl implements CouponService {
     @Override
     @Transactional
     public CouponResponse createCoupon(CouponRequest couponRequest) {
-        checkAdminRole();
+        // checkAdminRole();
         String requestCode = couponRequest.getCode().toUpperCase(); // Standardize et
         logger.info("ADMIN: Creating coupon with code: {}", requestCode);
 
@@ -106,7 +106,7 @@ public class CouponServiceImpl implements CouponService {
     @Override
     @Transactional
     public CouponResponse updateCoupon(Long couponId, CouponRequest couponRequest) {
-        checkAdminRole();
+       // checkAdminRole();
         logger.info("ADMIN: Updating coupon with ID: {}", couponId);
 
         Coupon existingCoupon = couponRepository.findById(couponId)
@@ -136,7 +136,7 @@ public class CouponServiceImpl implements CouponService {
     @Override
     @Transactional
     public void deleteCoupon(Long couponId) {
-        checkAdminRole();
+       // checkAdminRole();
         logger.warn("ADMIN: Deleting coupon with ID: {}", couponId);
 
         Coupon coupon = couponRepository.findById(couponId)
@@ -151,7 +151,7 @@ public class CouponServiceImpl implements CouponService {
     @Override
     @Transactional(readOnly = true)
     public Page<CouponResponse> findAllCoupons(Pageable pageable, Boolean isActive) {
-        checkAdminRole();
+      //  checkAdminRole();
         logger.debug("ADMIN: Fetching all coupons. IsActive filter: {}, Pageable: {}", isActive, pageable);
 
         Specification<Coupon> spec = Specification.where(CouponSpecifications.isActive(isActive));
@@ -166,7 +166,7 @@ public class CouponServiceImpl implements CouponService {
     @Override
     @Transactional(readOnly = true)
     public CouponResponse findCouponById(Long couponId) {
-        checkAdminRole();
+      //  checkAdminRole();
         logger.debug("ADMIN: Fetching coupon by ID: {}", couponId);
         Coupon coupon = couponRepository.findById(couponId)
                 .orElseThrow(() -> new ResourceNotFoundException("Coupon not found with id: " + couponId));
@@ -176,7 +176,7 @@ public class CouponServiceImpl implements CouponService {
     @Override
     @Transactional(readOnly = true)
     public CouponResponse findCouponByCode(String code) {
-        checkAdminRole();
+      //  checkAdminRole();
         String upperCaseCode = code.toUpperCase();
         logger.debug("ADMIN: Fetching coupon by code: {}", upperCaseCode);
         Coupon coupon = couponRepository.findByCode(upperCaseCode)
