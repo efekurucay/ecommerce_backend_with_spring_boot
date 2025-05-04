@@ -39,7 +39,8 @@ public class AdminUserController {
             @PageableDefault(size = 15, sort = "id", direction = Sort.Direction.ASC) Pageable pageable,
             @RequestParam(required = false) String search, // Arama terimi
             @RequestParam(required = false) Role role,     // Role göre filtre
-            @RequestParam(required = false) Boolean active // Aktiflik durumuna göre filtre
+            @RequestParam(required = false) Boolean active // Aktiflik durumuna göre filtre 
+            // Parametre adını 'active' yaptık Service'e uygun olsun diye
     ) {
          logger.info("GET /api/admin/users requested with filters - Search: '{}', Role: {}, Active: {}", search, role, active);
          Page<UserResponse> users = adminUserService.findAllUsers(pageable, search, role, active);
@@ -70,6 +71,7 @@ public class AdminUserController {
     // Kullanıcının rolünü güncelle
     @PatchMapping("/{userId}/role")
      public ResponseEntity<UserResponse> updateUserRole(
+        
              @PathVariable Long userId,
               // @Valid @RequestBody UserRoleUpdateRequest request // Ayrı DTO kullanılabilir
              @RequestParam Role role // Direkt parametre

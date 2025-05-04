@@ -6,6 +6,9 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.util.StringUtils; // String kontrolü için
 import java.util.ArrayList;
 import java.util.List;
+
+
+
 public class UserSpecifications {
     public static Specification<User> isActive(Boolean isActive) {
         return (root, query, cb) -> {
@@ -27,12 +30,15 @@ public class UserSpecifications {
                 return cb.conjunction();
             }
             String likePattern = "%" + searchTerm.toLowerCase() + "%";
-            // Username, email, firstName, lastName içinde ara
+            // Username, email, firstName, lastName içinde ara --  Hangi alanlarda arama yapılacağı
             Predicate usernameMatch = cb.like(cb.lower(root.get("username")), likePattern);
             Predicate emailMatch = cb.like(cb.lower(root.get("email")), likePattern);
             Predicate firstNameMatch = cb.like(cb.lower(root.get("firstName")), likePattern);
             Predicate lastNameMatch = cb.like(cb.lower(root.get("lastName")), likePattern);
    
+
+                        // Bu alanları OR ile birleştir
+
             return cb.or(usernameMatch, emailMatch, firstNameMatch, lastNameMatch);
         };
     }

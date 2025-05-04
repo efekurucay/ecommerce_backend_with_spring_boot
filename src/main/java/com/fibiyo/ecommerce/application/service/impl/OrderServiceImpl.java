@@ -1,24 +1,27 @@
 package com.fibiyo.ecommerce.application.service.impl;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper; // JSON için
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fibiyo.ecommerce.application.dto.AddressDto;
-import com.fibiyo.ecommerce.application.dto.CartResponse;
-import com.fibiyo.ecommerce.application.dto.OrderItemRequest;
+// import com.fibiyo.ecommerce.application.dto.CartResponse; // createOrder içinde artık kullanılmıyor
 import com.fibiyo.ecommerce.application.dto.OrderRequest;
 import com.fibiyo.ecommerce.application.dto.OrderResponse;
 import com.fibiyo.ecommerce.application.exception.BadRequestException;
 import com.fibiyo.ecommerce.application.exception.ForbiddenException;
 import com.fibiyo.ecommerce.application.exception.ResourceNotFoundException;
 import com.fibiyo.ecommerce.application.mapper.OrderMapper;
+import com.fibiyo.ecommerce.application.service.CartService; // Inject edilecek
+import com.fibiyo.ecommerce.application.service.NotificationService; // Inject edilecek
 import com.fibiyo.ecommerce.application.service.OrderService;
-// Diğer servisleri (Coupon, Product) ve Repository'leri inject etmek gerekebilir
-
-import com.fibiyo.ecommerce.application.service.CartService; // Sepet işlemleri için
-import com.fibiyo.ecommerce.domain.entity.*; // Order, OrderItem, Product, User, Coupon
+// import com.fibiyo.ecommerce.application.service.CouponService; // İhtiyaç olursa inject edilebilir
+import com.fibiyo.ecommerce.domain.entity.*; // Entity importları
+import com.fibiyo.ecommerce.domain.enums.NotificationType; // Enumlar
 import com.fibiyo.ecommerce.domain.enums.OrderStatus;
-import com.fibiyo.ecommerce.domain.enums.PaymentStatus; // Enumlar
-import com.fibiyo.ecommerce.infrastructure.persistence.repository.*; // Repositoryler
+import com.fibiyo.ecommerce.domain.enums.PaymentStatus;
+import com.fibiyo.ecommerce.domain.enums.Role; // Yetki kontrolü için
+import com.fibiyo.ecommerce.infrastructure.persistence.repository.*; // Repository importları
+// Specification importları (gerekirse)
+import com.fibiyo.ecommerce.infrastructure.persistence.specification.OrderSpecifications; // Bu sınıfı oluşturmak gerekebilir
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -28,368 +31,475 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional; // Kritik: Transactional
-
-
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode; // Kupon hesaplama için
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 
 @Service
 public class OrderServiceImpl implements OrderService {
 
     private static final Logger logger = LoggerFactory.getLogger(OrderServiceImpl.class);
 
-    // Repositories
+    // --- Injected Dependencies ---
     private final OrderRepository orderRepository;
-    private final OrderItemRepository orderItemRepository; // Gerekli olmayabilir (cascade ile kaydedilirse)
+    private final OrderItemRepository orderItemRepository; // Gerekli olabilir (itemTotal güncelleme kontrolü vb.)
     private final ProductRepository productRepository;
     private final UserRepository userRepository;
-    private final CouponRepository couponRepository; // Kupon işlemleri için
-    private final CartRepository cartRepository; // Kullanıcının sepetini almak için
-    private final CartService cartService;
-
-    // Services (Opsiyonel, bazen servisler birbirini çağırabilir)
-    // private final CouponService couponService;
-
-    // Mappers & Utilities
+    private final CouponRepository couponRepository;
+    private final CartService cartService; // Sepet temizleme ve bilgi alma
+    private final CartItemRepository cartItemRepository; // Direkt sepet temizleme için (clearCart alternatifi)
+    private final NotificationService notificationService; // Bildirim gönderme
     private final OrderMapper orderMapper;
-    private final ObjectMapper objectMapper; // JSON <-> DTO dönüşümü için
+    private final ObjectMapper objectMapper;
 
-    // Helper Methods (getCurrentUser etc. ProductService'teki gibi eklenebilir)
-     private User getCurrentUser() {
+
+    // --- Helper Methods ---
+    private User getCurrentUser() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         if (authentication == null || !authentication.isAuthenticated() || "anonymousUser".equals(authentication.getPrincipal())) {
-             throw new ForbiddenException("Erişim için kimlik doğrulaması gerekli.");
+            throw new ForbiddenException("Erişim için kimlik doğrulaması gerekli.");
         }
         String username = authentication.getName();
         return userRepository.findByUsername(username)
-                 .orElseThrow(() -> new ResourceNotFoundException("Current user not found in database: " + username));
+                .orElseThrow(() -> new ResourceNotFoundException("Current authenticated user not found: " + username));
+    }
+
+     private void checkAdminRole() {
+         User currentUser = getCurrentUser();
+         if (currentUser.getRole() != Role.ADMIN) {
+             logger.warn("User '{}' (Role: {}) attempted an admin-only order operation.", currentUser.getUsername(), currentUser.getRole());
+             throw new ForbiddenException("Bu işlemi gerçekleştirmek için Admin yetkisine sahip olmalısınız.");
+         }
      }
 
-     // AddressDto -> JSON String (OrderMapper'daki helper yerine burada olabilir)
-      private String convertAddressToJson(AddressDto addressDto) {
-          if (addressDto == null) return null;
-          try {
-             return objectMapper.writeValueAsString(addressDto);
-          } catch (JsonProcessingException e) {
-             logger.error("Error converting AddressDto to JSON: {}", e.getMessage(), e);
-             throw new BadRequestException("Adres bilgisi formatı hatalı."); // Hata fırlat
+      // Satıcının belirli bir siparişi yönetme yetkisi var mı kontrolü (Ürün bazlı)
+     private void checkSellerPermissionForOrder(User seller, Order order) {
+          if (seller.getRole() == Role.ADMIN) return; // Admin her şeye erişebilir
+          if (seller.getRole() != Role.SELLER) throw new ForbiddenException("Bu işlem için Seller veya Admin yetkisi gerekli.");
+
+          boolean sellerHasProductInOrder = order.getOrderItems().stream()
+                  .anyMatch(item -> item.getProduct() != null && item.getProduct().getSeller().getId().equals(seller.getId()));
+
+          if (!sellerHasProductInOrder) {
+              logger.warn("Seller ID {} attempted to access/modify Order ID {} which contains none of their products.", seller.getId(), order.getId());
+             throw new ForbiddenException("Bu siparişi yönetme yetkiniz yok (size ait ürün içermiyor).");
           }
       }
 
 
+    private String convertAddressToJson(AddressDto addressDto) {
+        if (addressDto == null) return null;
+        try {
+            return objectMapper.writeValueAsString(addressDto);
+        } catch (JsonProcessingException e) {
+            logger.error("Error converting AddressDto to JSON: {}", e.getMessage(), e);
+            throw new BadRequestException("Adres bilgisi formatı hatalı.");
+        }
+    }
+
+    private void restoreStockForOrderItems(List<OrderItem> items) {
+        for (OrderItem item : items) {
+            Product product = item.getProduct();
+            if (product != null) {
+                 // Ürünün güncel stoğunu tekrar okuyup üzerine eklemek daha güvenli olabilir (concurrency)
+                 // Ama transactional context içinde olduğumuz için şimdilik direkt ekleyelim
+                product.setStock(product.getStock() + item.getQuantity());
+                productRepository.save(product);
+                logger.debug("Restored {} stock for product ID: {}", item.getQuantity(), product.getId());
+            } else {
+                logger.warn("Could not restore stock for order item ID: {}. Product not found (likely deleted).", item.getId());
+            }
+        }
+    }
+
+    private BigDecimal calculateDiscount(Coupon coupon, BigDecimal amount) {
+         if(coupon == null || amount == null) return BigDecimal.ZERO;
+         BigDecimal discount = BigDecimal.ZERO;
+        if (coupon.getDiscountType() == com.fibiyo.ecommerce.domain.enums.DiscountType.FIXED_AMOUNT) {
+            discount = coupon.getDiscountValue();
+        } else if (coupon.getDiscountType() == com.fibiyo.ecommerce.domain.enums.DiscountType.PERCENTAGE) {
+            discount = amount.multiply(coupon.getDiscountValue()).divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
+        }
+        return discount.min(amount); // İndirim, tutarı geçemez
+     }
+
+
     @Autowired
-    public OrderServiceImpl(OrderRepository orderRepository, OrderItemRepository orderItemRepository, ProductRepository productRepository, UserRepository userRepository, CouponRepository couponRepository, OrderMapper orderMapper, ObjectMapper objectMapper, CartRepository cartRepository, CartService cartService) {
+    public OrderServiceImpl(OrderRepository orderRepository, OrderItemRepository orderItemRepository, ProductRepository productRepository, UserRepository userRepository, CouponRepository couponRepository, CartService cartService, CartItemRepository cartItemRepository, NotificationService notificationService, OrderMapper orderMapper, ObjectMapper objectMapper) {
         this.orderRepository = orderRepository;
         this.orderItemRepository = orderItemRepository;
         this.productRepository = productRepository;
         this.userRepository = userRepository;
         this.couponRepository = couponRepository;
+        this.cartService = cartService;
+        this.cartItemRepository = cartItemRepository; // Temizleme için eklendi
+        this.notificationService = notificationService; // Bildirim için eklendi
         this.orderMapper = orderMapper;
         this.objectMapper = objectMapper;
-        this.cartRepository = cartRepository; // Sepet işlemleri için
-        this.cartService = cartService; // Sepet işlemleri için
     }
 
 
-    // ... (OrderServiceImpl içinde) ...
-@Override
-@Transactional
-public OrderResponse createOrder(OrderRequest orderRequest) { // Parametre artık items içermiyor
-    User customer = getCurrentUser();
-    CartResponse cartResponse = cartService.getCartForCurrentUser(); // sepeti al
+    // --- Customer Operations Implementation ---
 
-    Cart cart = cartService.getOrCreateCartForUser(customer);
+    @Override
+    @Transactional
+    public OrderResponse createOrder(OrderRequest orderRequest) {
+        User customer = getCurrentUser();
+        // Sepet entity'sini CartService'deki public metot ile al
+        Cart cart = cartService.getOrCreateCartEntityForUser(customer);
 
-
-    // Eğer Cart nesnesine (entity) ihtiyacın varsa, CartService'e yeni metot eklenebilir:
-    
-    // Alternatif olarak, CartServiceImpl içinde bu metodu public hale getirip çağırabilirsin
-    
-
-    if (cart.getItems() == null || cart.getItems().isEmpty()) {
-         throw new BadRequestException("Sipariş oluşturmak için sepetinizde ürün bulunmalıdır.");
-     }
-    logger.info("Creating order for customer ID: {} from cart ID: {}", customer.getId(), cart.getId());
-
-    Order order = new Order();
-    order.setCustomer(customer);
-    order.setStatus(OrderStatus.PENDING_PAYMENT);
-    order.setPaymentStatus(PaymentStatus.PENDING);
-    order.setPaymentMethod(orderRequest.getPaymentMethod()); // Request'ten ödeme yöntemini al
-    order.setShippingAddress(convertAddressToJson(orderRequest.getShippingAddress()));
-    order.setBillingAddress(convertAddressToJson(orderRequest.getBillingAddress() != null ? orderRequest.getBillingAddress() : orderRequest.getShippingAddress()));
-
-
-    BigDecimal totalAmount = BigDecimal.ZERO;
-
-    // === Sipariş kalemlerini SEPETTEN ALarak işle ===
-    for (CartItem cartItem : cart.getItems()) { // Cart entity'sinden item'ları al
-         Product product = cartItem.getProduct(); // Cart fetch ile geldiyse product null olmamalı
-         int quantity = cartItem.getQuantity();
-
-         // Ürünü tekrar DB'den çekmek (locking için) veya sadece cartItem'daki bilgiyi kullanmak?
-         // Stok kontrolü için en güncel bilgiyi alalım:
-         Product currentProductState = productRepository.findById(product.getId())
-                  .orElseThrow(() -> new ResourceNotFoundException("Product (ID: "+ product.getId() +") found in cart but not in DB! Data inconsistency."));
-
-
-        // Stok ve Aktiflik/Onay Kontrolü
-         if (!currentProductState.isActive() || !currentProductState.isApproved()) {
-             logger.warn("Attempt to order inactive/unapproved product ID: {} found in cart ID: {}", product.getId(), cart.getId());
-             // Bu ürünü siparişe eklemeyip kullanıcıya bilgi mi versek? Yoksa tüm siparişi mi iptal etsek?
-             // Şimdilik hata fırlatalım:
-             throw new BadRequestException("Sepetinizdeki ürün '" + currentProductState.getName() + "' artık mevcut değil.");
+        if (cart.getItems() == null || cart.getItems().isEmpty()) {
+            throw new BadRequestException("Sipariş oluşturmak için sepetinizde ürün bulunmalıdır.");
         }
-         if (currentProductState.getStock() < quantity) {
-              logger.warn("Insufficient stock for product ID: {} found in cart ID: {}. Requested: {}, Stock: {}",
-                       product.getId(), cart.getId(), quantity, currentProductState.getStock());
-              throw new BadRequestException("Sepetinizdeki ürün '" + currentProductState.getName() + "' için stok yetersiz. Lütfen sepetinizi güncelleyin.");
-         }
+        logger.info("Creating order for customer ID: {} from cart ID: {}", customer.getId(), cart.getId());
 
-         // OrderItem oluştur
-        OrderItem orderItem = new OrderItem();
-         orderItem.setProduct(currentProductState); // Güncel product state
-         orderItem.setQuantity(quantity);
-         orderItem.setPriceAtPurchase(currentProductState.getPrice()); // O anki fiyat
-        order.addOrderItem(orderItem); // Order'a ekle ve ilişkiyi kur
+        Order order = new Order();
+        order.setCustomer(customer);
+        order.setStatus(OrderStatus.PENDING_PAYMENT);
+        order.setPaymentStatus(PaymentStatus.PENDING);
+        order.setPaymentMethod(orderRequest.getPaymentMethod());
+        order.setShippingAddress(convertAddressToJson(orderRequest.getShippingAddress()));
+        order.setBillingAddress(convertAddressToJson(orderRequest.getBillingAddress() != null ? orderRequest.getBillingAddress() : orderRequest.getShippingAddress()));
+        order.setDiscountAmount(BigDecimal.ZERO);
+        order.setShippingFee(BigDecimal.ZERO); // TODO: Kargo ücreti hesaplama mantığı eklenecek
+        // order.setFinalAmount(...); // -> DB GENERATED VEYA @Formula! BURADA SET ETME!
 
-         // Ürün stoğunu azalt
-         currentProductState.setStock(currentProductState.getStock() - quantity);
-         productRepository.save(currentProductState);
+        BigDecimal totalAmount = BigDecimal.ZERO;
 
-         totalAmount = totalAmount.add(orderItem.getPriceAtPurchase().multiply(BigDecimal.valueOf(quantity)));
-     }
-     // ==============================================
+        // Sepet Items üzerinde loop et (DB tutarlılığı için Product'ı tekrar çek)
+        for (CartItem cartItem : new ArrayList<>(cart.getItems())) {
+            Product product = productRepository.findById(cartItem.getProduct().getId())
+                    .orElseThrow(() -> {
+                         // Bu durum, sepet temizlenmediyse ve ürün silindiyse olabilir.
+                        logger.error("Product (ID: {}) from cart item (ID: {}) not found in DB during order creation!",
+                                   cartItem.getProduct().getId(), cartItem.getId());
+                        return new BadRequestException("Sepetinizdeki bir ürün ('"+cartItem.getProduct().getName()+"') artık mevcut değil. Lütfen sepetinizi güncelleyin.");
+                    });
 
-     order.setTotalAmount(totalAmount);
-     order.setDiscountAmount(BigDecimal.ZERO); // Başlangıçta sıfır
+            int quantity = cartItem.getQuantity();
 
-      // Kupon Kontrolü (orderRequest.getCouponCode() kullan)
-      Coupon appliedCoupon = null;
-      if (orderRequest.getCouponCode() != null && !orderRequest.getCouponCode().isBlank()) {
-         // ... (Kupon kontrol ve uygulama mantığı öncekiyle aynı) ...
-         if(appliedCoupon != null){
-             order.setCoupon(appliedCoupon);
-             // order.setDiscountAmount(hesaplanan_indirim);
+            // Kontroller
+            if (!product.isActive() || !product.isApproved()) {
+                throw new BadRequestException("Sepetinizdeki ürün '" + product.getName() + "' şu anda satın alınamaz.");
+            }
+            if (product.getStock() < quantity) {
+                 throw new BadRequestException("Sepetinizdeki '" + product.getName() + "' ürünü için stok yetersiz (Kalan: " + product.getStock()+").");
+            }
+
+            // OrderItem oluştur
+            OrderItem orderItem = new OrderItem();
+            orderItem.setProduct(product);
+            orderItem.setQuantity(quantity);
+            orderItem.setPriceAtPurchase(product.getPrice());
+            order.addOrderItem(orderItem);
+
+            // Stoğu azalt
+            product.setStock(product.getStock() - quantity);
+            // productRepository.save(product); // -> Cascade ile Order kaydedilince Product da güncellenmeli mi? Yoksa manuel mi? Manuel yapalım garanti olsun.
+            productRepository.save(product); // Explicitly save the product stock change
+
+            totalAmount = totalAmount.add(orderItem.getPriceAtPurchase().multiply(BigDecimal.valueOf(quantity)));
+        }
+
+        order.setTotalAmount(totalAmount);
+
+        // Kupon Kontrolü ve Uygulama
+        Coupon appliedCoupon = null;
+        if (orderRequest.getCouponCode() != null && !orderRequest.getCouponCode().isBlank()) {
+            String couponCode = orderRequest.getCouponCode().toUpperCase();
+            appliedCoupon = couponRepository.findByCodeAndIsActiveTrueAndExpiryDateAfter(couponCode, LocalDateTime.now())
+                     .orElseThrow(() -> new BadRequestException("Geçersiz veya süresi dolmuş kupon kodu: " + couponCode));
+
+             // Min sepet tutarı kontrolü (İndirim uygulanmadan önceki totalAmount'a göre)
+            if (totalAmount.compareTo(appliedCoupon.getMinPurchaseAmount()) < 0) {
+                 throw new BadRequestException(String.format("Bu kuponu kullanmak için minimum alışveriş tutarı %.2f TL olmalıdır.", appliedCoupon.getMinPurchaseAmount()));
+            }
+            if (appliedCoupon.isUsageLimitReached()) {
+                throw new BadRequestException("Bu kupon kullanım limitine ulaşmış.");
+            }
+
+            BigDecimal discount = calculateDiscount(appliedCoupon, totalAmount); // İndirimi hesapla
+            order.setCoupon(appliedCoupon);
+            order.setDiscountAmount(discount);
+             // Kupon kullanımını artır (Transaction sonunda başarılı olursa kaydedilir)
+             appliedCoupon.incrementTimesUsed();
+             // couponRepository.save(appliedCoupon); // Order save edilirken cascade veya @PreUpdate ile yapılabilir? Şimdilik manuel yapalım.
              couponRepository.save(appliedCoupon);
-         }
-      }
+
+             logger.info("Coupon '{}' applied. Discount: {}", couponCode, discount);
+        }
+
+        // Order ve ilişkili OrderItem'ları (ve Product/Coupon güncellemelerini) kaydet
+        Order savedOrder = orderRepository.save(order);
+
+        // SEPETİ TEMİZLE (cartItemRepository kullanarak)
+        try {
+            cartItemRepository.deleteByCartId(cart.getId());
+            logger.info("Cart ID: {} cleared after order creation.", cart.getId());
+        } catch (Exception e){
+             // Sepet temizleme hatası siparişi geri almamalı ama loglanmalı!
+            logger.error("Failed to clear cart ID {} after creating Order ID {}: {}", cart.getId(), savedOrder.getId(), e.getMessage());
+        }
 
 
+        logger.info("Order ID: {} created successfully for customer ID: {}. Final Amount: {}",
+                   savedOrder.getId(), customer.getId(), savedOrder.getFinalAmount()); // finalAmount'ı kontrol et!
 
-// Ödeme ve toplam tutar hesaplaması
-order.setTotalAmount(totalAmount);
-order.setShippingFee(orderRequest.getShippingFee() != null ? orderRequest.getShippingFee() : BigDecimal.ZERO); // eğer dışarıdan alınıyorsa
- order.setDiscountAmount(orderRequest.getDiscountAmount() != null ? orderRequest.getDiscountAmount() : BigDecimal.ZERO); // kupon vs. varsa
+        // TODO: Bildirim Gönderme (Order Placed)
+        // notificationService.createNotification(customer, "Siparişiniz #" + savedOrder.getId() + " alındı.", "/orders/my/" + savedOrder.getId(), NotificationType.ORDER_UPDATE);
 
-// 🔥 En önemlisi burası:
-BigDecimal finalAmount = order.getTotalAmount()
-    .add(order.getShippingFee() != null ? order.getShippingFee() : BigDecimal.ZERO)
-    .subtract(order.getDiscountAmount() != null ? order.getDiscountAmount() : BigDecimal.ZERO);
+        // TODO: Ödeme Başlatma (eğer otomatik olacaksa)
+        // paymentService.createCheckoutSession(...);
 
-order.setFinalAmount(finalAmount);
+        return orderMapper.toOrderResponse(savedOrder);
+    }
 
-
-
-
-
-    Order savedOrder = orderRepository.save(order); // Cascade ile orderItems kaydedilecek
-
-    // !!! Sipariş BAŞARIYLA oluşturulduktan sonra SEPETİ TEMİZLE !!!
-    cartService.clearCart(); // Veya cartRepository.delete(cart) veya cartItemRepository.deleteByCartId(cart.getId())
-
-    logger.info("Order ID: {} created from Cart ID: {}. Cart cleared.", savedOrder.getId(), cart.getId());
-
-    // TODO: Ödeme işlemi başlatma, bildirim vs.
-
-    return orderMapper.toOrderResponse(savedOrder);
-}
-
-// ... (Diğer OrderService metodları) ...
-    
-    
     @Override
     @Transactional(readOnly = true)
     public Page<OrderResponse> findMyOrders(Pageable pageable) {
         User customer = getCurrentUser();
-         logger.debug("Fetching orders for customer ID: {}", customer.getId());
-         Page<Order> orderPage = orderRepository.findByCustomerIdOrderByOrderDateDesc(customer.getId(), pageable);
-         return orderPage.map(orderMapper::toOrderResponse); // Page.map() ile dönüşüm
+        logger.debug("Fetching orders for customer ID: {}", customer.getId());
+        Page<Order> orderPage = orderRepository.findByCustomerIdOrderByOrderDateDesc(customer.getId(), pageable);
+        return orderPage.map(orderMapper::toOrderResponse);
     }
 
-
-    // Diğer OrderService metodlarının implementasyonları buraya gelecek...
     @Override
-     @Transactional(readOnly = true)
+    @Transactional(readOnly = true)
     public OrderResponse findMyOrderById(Long orderId) {
-         User customer = getCurrentUser();
-          logger.debug("Fetching order ID: {} for customer ID: {}", orderId, customer.getId());
-          Order order = orderRepository.findById(orderId)
-                  .orElseThrow(() -> new ResourceNotFoundException("Order not found with id: " + orderId));
-         // Siparişin bu müşteriye ait olduğunu kontrol et
-          if (!order.getCustomer().getId().equals(customer.getId())) {
-               throw new ForbiddenException("Bu siparişi görüntüleme yetkiniz yok.");
-          }
-          return orderMapper.toOrderResponse(order);
+        User customer = getCurrentUser();
+        logger.debug("Fetching order ID: {} for customer ID: {}", orderId, customer.getId());
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new ResourceNotFoundException("Order not found with id: " + orderId));
+        if (!order.getCustomer().getId().equals(customer.getId())) {
+            throw new ForbiddenException("Bu siparişi görüntüleme yetkiniz yok.");
+        }
+        return orderMapper.toOrderResponse(order);
     }
 
     @Override
     @Transactional
     public OrderResponse cancelMyOrder(Long orderId) {
-         User customer = getCurrentUser();
-          logger.warn("Customer ID: {} attempting to cancel order ID: {}", customer.getId(), orderId);
-          Order order = orderRepository.findById(orderId)
-                  .orElseThrow(() -> new ResourceNotFoundException("Order not found with id: " + orderId));
+        User customer = getCurrentUser();
+        logger.warn("Customer ID: {} attempting to cancel order ID: {}", customer.getId(), orderId);
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new ResourceNotFoundException("Order not found with id: " + orderId));
 
-          // Sahiplik kontrolü
-         if (!order.getCustomer().getId().equals(customer.getId())) {
-             throw new ForbiddenException("Bu siparişi iptal etme yetkiniz yok.");
-         }
-
-          // Siparişin iptal edilebilir durumda olup olmadığını kontrol et (Örn: henüz kargolanmamış olmalı)
-          if (order.getStatus() == OrderStatus.SHIPPED || order.getStatus() == OrderStatus.DELIVERED || order.getStatus().name().startsWith("CANCELLED") || order.getStatus().name().startsWith("RETURN")) {
-             throw new BadRequestException("Bu sipariş artık iptal edilemez. Durum: " + order.getStatus());
-         }
-
-        // Durumu güncelle
-         order.setStatus(OrderStatus.CANCELLED_BY_CUSTOMER);
-         order.setPaymentStatus(PaymentStatus.REFUNDED); // veya PENDING_REFUND?
-
-         // TODO: Stokları iade et!
-         restoreStockForOrderItems(order.getOrderItems());
-
-         // TODO: Kullanılan kupon varsa kullanım sayısını azalt?
-         if(order.getCoupon() != null) {
-             // CouponService veya repository üzerinden decrement
-         }
-
-        // TODO: Ödeme iadesi işlemini tetikle (PaymentService)
-        // paymentService.initiateRefund(orderId);
-
-
-         Order cancelledOrder = orderRepository.save(order);
-         logger.info("Order ID: {} cancelled successfully by customer ID: {}", orderId, customer.getId());
-         return orderMapper.toOrderResponse(cancelledOrder);
-    }
-    // Stok iade metodu
-     private void restoreStockForOrderItems(List<OrderItem> items) {
-        for(OrderItem item : items) {
-             Product product = item.getProduct();
-             // Ürün hala varsa stoğu artır (ürün silinmiş olabilir - ON DELETE SET NULL)
-             if(product != null) {
-                 product.setStock(product.getStock() + item.getQuantity());
-                 productRepository.save(product);
-                 logger.debug("Restored {} stock for product ID: {}", item.getQuantity(), product.getId());
-             } else {
-                logger.warn("Could not restore stock for order item ID: {}, product not found (likely deleted).", item.getId());
-             }
+        if (!order.getCustomer().getId().equals(customer.getId())) {
+            throw new ForbiddenException("Bu siparişi iptal etme yetkiniz yok.");
         }
-     }
 
-    // ... (findAllOrders, findSellerOrders, findOrderById, updateOrderStatus etc.)
-     @Override
-     @Transactional(readOnly = true)
-     public Page<OrderResponse> findAllOrders(Pageable pageable, Long customerId, OrderStatus status /*...*/) {
-          // Admin rol kontrolü yapılmalı
-          logger.debug("Admin finding all orders...");
-           Specification<Order> spec = Specification.where(null); // Filtreler için spec oluşturulacak
-          // if (customerId != null) spec = spec.and(OrderSpecifications.hasCustomer(customerId));
-          // if (status != null) spec = spec.and(OrderSpecifications.hasStatus(status));
-           Page<Order> orderPage = orderRepository.findAll(spec, pageable);
-          return orderPage.map(orderMapper::toOrderResponse);
-     }
+        // İptal koşulları (processing altında olmalı?)
+        if (!(order.getStatus() == OrderStatus.PENDING_PAYMENT || order.getStatus() == OrderStatus.PROCESSING)) {
+             throw new BadRequestException("Bu sipariş artık iptal edilemez (Mevcut Durum: " + order.getStatus() + ").");
+        }
 
-      @Override
-      @Transactional(readOnly = true)
-      public Page<OrderResponse> findSellerOrders(Pageable pageable, OrderStatus status) {
-         // Seller rol kontrolü veya Admin
-          User seller = getCurrentUser();
-          logger.debug("Seller/Admin finding orders for seller ID: {}", seller.getId());
-           // TODO: Specification veya JPQL ile satıcının ürünlerini içeren siparişleri filtrele
-           Page<Order> orderPage = Page.empty(); // Geçici
-          return orderPage.map(orderMapper::toOrderResponse);
-      }
+        order.setStatus(OrderStatus.CANCELLED_BY_CUSTOMER);
 
-     @Override
-     @Transactional(readOnly = true)
-     public OrderResponse findOrderById(Long orderId) {
-         // Admin/Seller rol kontrolü
-         logger.debug("Finding order by ID (Admin/Seller): {}", orderId);
-          Order order = orderRepository.findById(orderId)
-                   .orElseThrow(() -> new ResourceNotFoundException("Order not found with id: " + orderId));
-          return orderMapper.toOrderResponse(order);
-      }
+         // Ödeme Durumu: Eğer ödenmişse refund gerekir, değilse direkt iptal.
+        boolean paymentWasCompleted = order.getPaymentStatus() == PaymentStatus.COMPLETED || order.getPaymentStatus() == PaymentStatus.PARTIALLY_REFUNDED;
+         if (paymentWasCompleted) {
+             order.setPaymentStatus(PaymentStatus.REFUNDED); // TODO: Gerçek refund işlemini tetikle (PaymentService)!
+              logger.info("Order ID {} cancelled by customer. Initiating refund process.", orderId);
+             // paymentService.initiateRefund(orderId, "Müşteri İptali");
+         } else {
+              order.setPaymentStatus(PaymentStatus.PENDING); // Veya özel bir "CANCELLED" ödeme durumu? Şimdilik PENDING kalabilir.
+             logger.info("Order ID {} cancelled by customer before payment completion.", orderId);
+         }
 
-     @Override
-     @Transactional
-      public OrderResponse updateOrderStatus(Long orderId, OrderStatus newStatus) {
-          // Admin/Seller rol kontrolü
-         logger.info("Updating order status for ID: {} to {}", orderId, newStatus);
-           Order order = orderRepository.findById(orderId)
-                 .orElseThrow(() -> new ResourceNotFoundException("Order not found with id: " + orderId));
+        restoreStockForOrderItems(order.getOrderItems());
 
-          // TODO: Geçerli durum geçişlerini kontrol et (örn: DELIVERED'dan SHIPPED'e dönülemez)
+         if (order.getCoupon() != null) {
+             // TODO: Kupon sayacını decrement et
+             logger.info("Decrementing usage count for coupon code: {}", order.getCoupon().getCode());
+            // Coupon coupon = order.getCoupon(); coupon.decrementTimesUsed(); couponRepository.save(coupon);
+         }
 
-          order.setStatus(newStatus);
+        Order cancelledOrder = orderRepository.save(order);
 
-          // Duruma göre ek işlemler (Bildirim gönder, ödeme durumu güncelle vb.)
-           if(newStatus == OrderStatus.SHIPPED && order.getTrackingNumber() == null) {
-               logger.warn("Order ID {} marked as SHIPPED but no tracking number provided.", orderId);
-           }
-           if(newStatus == OrderStatus.DELIVERED) {
-              // Opsiyonel: Otomatik ödeme durumu tamamlama vs.
-           }
-           if(newStatus.name().startsWith("CANCELLED")) {
-               // Stok iadesi (eğer daha önce yapılmadıysa), refund işlemleri...
-                if(order.getPaymentStatus() != PaymentStatus.REFUNDED){
-                   restoreStockForOrderItems(order.getOrderItems());
-                   order.setPaymentStatus(PaymentStatus.REFUNDED); // Otomatik refund kabul edelim şimdilik
-               }
-           }
+         // Bildirim Gönder (Admin'e / Satıcıya?)
+         // notificationService.createNotification(...);
 
+        logger.info("Order ID: {} cancelled successfully by customer ID: {}.", orderId, customer.getId());
+        return orderMapper.toOrderResponse(cancelledOrder);
+    }
 
-           Order updatedOrder = orderRepository.save(order);
-          logger.info("Order ID: {} status updated to {}", orderId, newStatus);
-          // TODO: Müşteriye bildirim gönder
-          return orderMapper.toOrderResponse(updatedOrder);
+    // --- Admin/Seller Operations Implementation ---
 
-           
+    @Override
+    @Transactional(readOnly = true)
+    public Page<OrderResponse> findAllOrders(Pageable pageable, Long customerId, OrderStatus status) {
+        checkAdminRole(); // Sadece admin tüm siparişleri görür
+        logger.debug("ADMIN: Fetching all orders. Customer Filter: {}, Status Filter: {}, Pageable: {}", customerId, status, pageable);
 
+         Specification<Order> spec = Specification.where(OrderSpecifications.hasCustomer(customerId))
+                .and(OrderSpecifications.hasStatus(status));
+         // İhtiyaca göre diğer Specification'lar eklenebilir (.withDateBetween(), .withSeller() vs.)
 
+        Page<Order> orderPage = orderRepository.findAll(spec, pageable);
+        return orderPage.map(orderMapper::toOrderResponse);
+    }
 
+    @Override
+    @Transactional(readOnly = true)
+    public Page<OrderResponse> findSellerOrders(Pageable pageable, OrderStatus status) {
+         // Hem Admin hem Seller bu endpoint'i kullanabilir ama farklı filtrelerle
+         User currentUser = getCurrentUser();
+         Specification<Order> spec;
 
-      }
-
-       @Override
-       @Transactional
-       public OrderResponse addTrackingNumber(Long orderId, String trackingNumber) {
-          // Admin/Seller rol kontrolü
-          logger.info("Adding tracking number '{}' to order ID: {}", trackingNumber, orderId);
-           Order order = orderRepository.findById(orderId)
-                  .orElseThrow(() -> new ResourceNotFoundException("Order not found with id: " + orderId));
-
-          // Sipariş kargolanmış veya işleniyor olmalı
-           if (order.getStatus() != OrderStatus.PROCESSING && order.getStatus() != OrderStatus.SHIPPED) {
-               throw new BadRequestException("Takip numarası eklemek için sipariş durumu uygun değil: " + order.getStatus());
+         if(currentUser.getRole() == Role.ADMIN) {
+              // Admin tüm seller'ları (veya ID ile filtrelenmiş) görebilir.
+              // Şimdilik tüm siparişleri filtreli dönelim (yukarıdaki gibi) veya seller ID filtresi ekleyelim.
+               spec = Specification.where(OrderSpecifications.hasStatus(status)); // Örnek
+               logger.debug("ADMIN: Fetching seller-related orders. Status Filter: {}, Pageable: {}", status, pageable);
+         } else if (currentUser.getRole() == Role.SELLER) {
+             // Seller sadece kendi ürünlerini içeren siparişleri görmeli
+               logger.debug("SELLER: Fetching orders containing products for seller ID: {}. Status Filter: {}, Pageable: {}",
+                          currentUser.getId(), status, pageable);
+                spec = Specification.where(OrderSpecifications.hasSellerProduct(currentUser.getId()))
+                         .and(OrderSpecifications.hasStatus(status));
+          } else {
+              // Bu duruma düşmemeli (@PreAuthorize veya kontrol sonrası) ama güvenlik için
+              throw new ForbiddenException("Siparişleri görme yetkiniz yok.");
           }
 
-          order.setTrackingNumber(trackingNumber);
-           // Takip numarası eklendiyse durumu SHIPPED yapabiliriz (opsiyonel)
-           if(order.getStatus() == OrderStatus.PROCESSING){
-               order.setStatus(OrderStatus.SHIPPED);
+        Page<Order> orderPage = orderRepository.findAll(spec, pageable);
+        return orderPage.map(orderMapper::toOrderResponse);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public OrderResponse findOrderById(Long orderId) {
+         // Admin veya ilgili Satıcı görebilmeli
+        User currentUser = getCurrentUser();
+         logger.debug("User/Admin finding order by ID: {}", orderId);
+         Order order = orderRepository.findById(orderId)
+                 .orElseThrow(() -> new ResourceNotFoundException("Order not found with id: " + orderId));
+
+         // Yetki kontrolü: Ya Adminsin ya da sipariş senin ürününü içeriyor
+          checkSellerPermissionForOrder(currentUser, order); // Bu metod seller olmayanlar için hata fırlatır (Admin hariç)
+
+          return orderMapper.toOrderResponse(order);
+    }
+
+    @Override
+    @Transactional
+    public OrderResponse updateOrderStatus(Long orderId, OrderStatus newStatus) {
+         // Admin veya ilgili Satıcı güncelleyebilmeli
+        User currentUser = getCurrentUser();
+        logger.info("User/Admin ID: {} updating status for Order ID: {} to {}", currentUser.getId(), orderId, newStatus);
+
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new ResourceNotFoundException("Order not found with id: " + orderId));
+
+        // Yetki Kontrolü
+        checkSellerPermissionForOrder(currentUser, order);
+
+         // Durum Geçiş Kontrolleri (Örnek - Daha detaylı olabilir)
+         OrderStatus currentStatus = order.getStatus();
+         boolean isAdmin = currentUser.getRole() == Role.ADMIN;
+         // Sadece Admin her durumu Cancelled yapabilir veya belirli durumlara geri alabilir mi?
+         // Seller hangi durumları set edebilir? (Örn: PROCESSING -> SHIPPED)
+
+         if (currentStatus == newStatus) {
+            logger.warn("Order ID {} already in status {}. No update performed.", orderId, newStatus);
+            return orderMapper.toOrderResponse(order); // Değişiklik yok
+         }
+
+         // Basit Örnek Geçişler:
+          // Seller sadece işleniyor veya kargolandı yapabilir (eğer ödeme tamamsa)
+          if (!isAdmin && !(newStatus == OrderStatus.PROCESSING || newStatus == OrderStatus.SHIPPED)) {
+               throw new ForbiddenException("Satıcı olarak bu duruma güncelleme yetkiniz yok: " + newStatus);
+          }
+           if (currentStatus == OrderStatus.DELIVERED || currentStatus.name().startsWith("CANCELLED")) {
+               throw new BadRequestException("Tamamlanmış veya iptal edilmiş sipariş durumu değiştirilemez.");
            }
+           // Kargolanmış siparişi admin geri alabilir mi?
+           if (currentStatus == OrderStatus.SHIPPED && newStatus == OrderStatus.PROCESSING && !isAdmin) {
+                throw new ForbiddenException("Kargolanmış sipariş durumu sadece Admin tarafından değiştirilebilir.");
+            }
 
-           Order updatedOrder = orderRepository.save(order);
-          logger.info("Tracking number added for order ID: {}", orderId);
-           // TODO: Müşteriye bildirim gönder
+         // Ana Logic
+        order.setStatus(newStatus);
 
-           
-          return orderMapper.toOrderResponse(updatedOrder);
-       }
+        // Yan Etkiler
+        String notificationMsg = null;
+         NotificationType notificationType = NotificationType.ORDER_UPDATE;
 
+        if (newStatus == OrderStatus.SHIPPED && order.getTrackingNumber() == null) {
+            logger.warn("Order ID {} marked as SHIPPED by User ID: {} but no tracking number provided.", orderId, currentUser.getId());
+             notificationMsg = "#" + orderId + " numaralı siparişiniz kargoya verildi!";
+        } else if (newStatus == OrderStatus.SHIPPED && order.getTrackingNumber() != null) {
+             notificationMsg = "#" + orderId + " numaralı siparişiniz kargoya verildi! Takip Numarası: " + order.getTrackingNumber();
+         }
+         else if (newStatus == OrderStatus.DELIVERED) {
+             order.setPaymentStatus(PaymentStatus.COMPLETED); // Otomatik tamamlama
+              notificationMsg = "#" + orderId + " numaralı siparişiniz teslim edildi! Bizi değerlendirmeyi unutmayın.";
+         } else if (newStatus.name().startsWith("CANCELLED")) {
+             logger.warn("Order ID: {} status set to {} by User/Admin ID: {}. Restoring stock and handling payment.", orderId, newStatus, currentUser.getId());
+            if (order.getPaymentStatus() == PaymentStatus.COMPLETED || order.getPaymentStatus() == PaymentStatus.PARTIALLY_REFUNDED) {
+                 order.setPaymentStatus(PaymentStatus.REFUNDED); // Refund gerekli
+                 // TODO: PaymentService.initiateRefund(...) çağır
+             } else {
+                 order.setPaymentStatus(PaymentStatus.PENDING); // Veya FAILED?
+             }
+            restoreStockForOrderItems(order.getOrderItems());
+            // TODO: Kuponu geri al?
+            notificationMsg = "#" + orderId + " numaralı siparişiniz iptal edildi.";
+         }
+
+        Order updatedOrder = orderRepository.save(order);
+
+         // Bildirim Gönder
+         if(notificationMsg != null && updatedOrder.getCustomer() != null) {
+            try{
+                 notificationService.createNotification(updatedOrder.getCustomer(), notificationMsg, "/orders/my/"+orderId, notificationType);
+             } catch (Exception e){
+                 logger.error("Failed to send status update notification for Order ID {}", orderId, e);
+             }
+         }
+
+        logger.info("Order ID: {} status updated to {} by User/Admin ID: {}.", orderId, newStatus, currentUser.getId());
+        return orderMapper.toOrderResponse(updatedOrder);
+    }
+
+    @Override
+    @Transactional
+    public OrderResponse addTrackingNumber(Long orderId, String trackingNumber) {
+         // Admin veya ilgili Satıcı ekleyebilir
+        User currentUser = getCurrentUser();
+         logger.info("User/Admin ID: {} adding tracking number '{}' to Order ID: {}", currentUser.getId(), trackingNumber, orderId);
+
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new ResourceNotFoundException("Order not found with id: " + orderId));
+
+        checkSellerPermissionForOrder(currentUser, order); // Yetki kontrolü
+
+        // Sipariş uygun durumda mı?
+        if (!(order.getStatus() == OrderStatus.PROCESSING || order.getStatus() == OrderStatus.SHIPPED)) {
+             throw new BadRequestException("Takip numarası eklemek için sipariş durumu uygun değil: " + order.getStatus());
+        }
+
+        order.setTrackingNumber(trackingNumber);
+
+         // Eğer durum PROCESSING ise otomatik SHIPPED yapalım
+        if(order.getStatus() == OrderStatus.PROCESSING) {
+             order.setStatus(OrderStatus.SHIPPED);
+             logger.info("Order ID: {} status automatically updated to SHIPPED after adding tracking number.", orderId);
+            // TODO: SHIPPED bildirimi burada gönderilebilir
+             try{
+                  String msg = "#" + orderId + " numaralı siparişiniz kargoya verildi! Takip No: " + trackingNumber;
+                  notificationService.createNotification(order.getCustomer(), msg, "/orders/my/"+orderId, NotificationType.ORDER_UPDATE);
+              } catch (Exception e){
+                   logger.error("Failed to send SHIPPED notification for Order ID {}", orderId, e);
+              }
+         }
+
+        Order updatedOrder = orderRepository.save(order);
+        logger.info("Tracking number '{}' added successfully to Order ID: {}.", trackingNumber, orderId);
+        return orderMapper.toOrderResponse(updatedOrder);
+    }
 }

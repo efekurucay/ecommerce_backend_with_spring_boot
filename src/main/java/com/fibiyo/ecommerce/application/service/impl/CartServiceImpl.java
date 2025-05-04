@@ -1,6 +1,6 @@
 package com.fibiyo.ecommerce.application.service.impl;
 
-import com.fibiyo.ecommerce.application.dto.*;
+import com.fibiyo.ecommerce.application.dto.*; // DTO importları
 import com.fibiyo.ecommerce.application.exception.*; // Exceptions
 import com.fibiyo.ecommerce.application.mapper.*; // Mappers
 import com.fibiyo.ecommerce.application.service.CartService;
@@ -9,9 +9,10 @@ import com.fibiyo.ecommerce.infrastructure.persistence.repository.*; // Reposito
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.core.Authentication; // Auth import
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional; // Önemli
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Optional;
 
@@ -25,201 +26,193 @@ public class CartServiceImpl implements CartService {
     private final ProductRepository productRepository;
     private final UserRepository userRepository;
     private final CartMapper cartMapper;
-    private final CartItemMapper cartItemMapper; // İç DTO için
-
+    // private final CartItemMapper cartItemMapper; // Direkt kullanılmıyor olabilir (CartMapper kullanıyor)
 
     @Autowired
-    public CartServiceImpl(CartRepository cartRepository, CartItemRepository cartItemRepository, ProductRepository productRepository, UserRepository userRepository, CartMapper cartMapper, CartItemMapper cartItemMapper) {
+    public CartServiceImpl(CartRepository cartRepository, CartItemRepository cartItemRepository, ProductRepository productRepository, UserRepository userRepository, CartMapper cartMapper) {
         this.cartRepository = cartRepository;
         this.cartItemRepository = cartItemRepository;
         this.productRepository = productRepository;
         this.userRepository = userRepository;
         this.cartMapper = cartMapper;
-        this.cartItemMapper = cartItemMapper;
+        // this.cartItemMapper = cartItemMapper; // CartMapper içinden kullanıldığı için inject şart değil gibi
     }
 
-    // Helper
+    // Helper - Mevcut giriş yapmış kullanıcıyı getirir
     private User getCurrentUser() {
-        String username = SecurityContextHolder.getContext().getAuthentication().getName();
-         if ("anonymousUser".equals(username)) {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null || !authentication.isAuthenticated() || "anonymousUser".equals(authentication.getPrincipal())) {
             throw new ForbiddenException("Bu işlem için giriş yapmalısınız.");
         }
+        String username = authentication.getName();
         return userRepository.findByUsername(username)
-               .orElseThrow(() -> new ResourceNotFoundException("Current user not found: " + username));
+                .orElseThrow(() -> new ResourceNotFoundException("Current user not found: " + username));
     }
 
-    // Kullanıcının sepetini getir veya yoksa oluşturur
+    // Helper - Kullanıcının sepetini getir veya yoksa oluştur (Item ve Product ile EAGER yükler)
+    // Interface'e eklendiği için Override ve public oldu
     @Override
-    public Cart getOrCreateCartForUser(User user) {
-        return cartRepository.findByUserIdWithItems(user.getId())
+    @Transactional // Yeni sepet oluşturma ihtimali var
+    public Cart getOrCreateCartEntityForUser(User user) {
+        return cartRepository.findByUserIdWithItems(user.getId()) // Optimize sorgu ile çekmeyi dene
                 .orElseGet(() -> {
                     logger.info("No cart found for user ID: {}. Creating a new cart.", user.getId());
                     Cart newCart = new Cart();
                     newCart.setUser(user);
-                    return cartRepository.save(newCart);
+                    return cartRepository.save(newCart); // Yeni sepeti kaydet ve dön
                 });
     }
-    
+
     @Override
-    @Transactional(readOnly = true)
+    @Transactional(readOnly = true) // Genellikle sadece okuma, oluşturma getOrCreateCartEntityForUser içinde
     public CartResponse getCartForCurrentUser() {
         User user = getCurrentUser();
-
-        logger.warn(">>> getCartForCurrentUser() method called"); // bunu ekle
-         logger.debug("Fetching cart for user ID: {}", user.getId());
-         Cart cart = getOrCreateCartForUser(user); // Varsa getir, yoksa oluştur
-         return cartMapper.toCartResponse(cart);
+        logger.debug("Fetching cart DTO for user ID: {}", user.getId());
+        Cart cart = getOrCreateCartEntityForUser(user); // DB'den al veya oluştur
+        return cartMapper.toCartResponse(cart); // DTO'ya çevir ve dön
     }
 
     @Override
     @Transactional
     public CartResponse addItemToCart(AddToCartRequest request) {
-         User user = getCurrentUser();
-        Cart cart = getOrCreateCartForUser(user); // Sepeti al veya oluştur
-         Product product = productRepository.findById(request.getProductId())
+        User user = getCurrentUser();
+        // getOrCreate... metodu zaten cartı ve içindekileri (items->product) yüklüyor
+        Cart cart = getOrCreateCartEntityForUser(user);
+        Product product = productRepository.findById(request.getProductId())
                 .orElseThrow(() -> new ResourceNotFoundException("Product not found with id: " + request.getProductId()));
         int requestedQuantity = request.getQuantity();
 
-         logger.info("User ID: {} adding product ID: {} (Qty: {}) to cart ID: {}",
+        logger.info("User ID: {} adding product ID: {} (Qty: {}) to cart ID: {}",
                 user.getId(), product.getId(), requestedQuantity, cart.getId());
 
         // Stok ve ürün durumu kontrolü
         if (!product.isActive() || !product.isApproved()) {
-             throw new BadRequestException("Ürün '" + product.getName() + "' şu anda satın alınamaz.");
+            throw new BadRequestException("Ürün '" + product.getName() + "' şu anda satın alınamaz.");
         }
 
-        // Sepette bu ürün var mı?
-         Optional<CartItem> existingItemOpt = cartItemRepository.findByCartIdAndProductId(cart.getId(), product.getId());
+        // Sepette bu ürün var mı kontrolü (Mevcut item listesi üzerinden daha verimli)
+        Optional<CartItem> existingItemOpt = cart.getItems().stream()
+                .filter(item -> item.getProduct() != null && item.getProduct().getId().equals(product.getId()))
+                .findFirst();
 
         if (existingItemOpt.isPresent()) {
-             // Ürün sepette var, miktarını güncelle
-             CartItem existingItem = existingItemOpt.get();
-             int newQuantity = existingItem.getQuantity() + requestedQuantity;
-             if (product.getStock() < newQuantity) {
-                 logger.warn("Insufficient stock to add quantity for product ID: {}. Cart ID: {}, Requested total: {}, Stock: {}",
+            // Ürün sepette var, miktarını güncelle
+            CartItem existingItem = existingItemOpt.get();
+            int newQuantity = existingItem.getQuantity() + requestedQuantity;
+            if (product.getStock() < newQuantity) {
+                logger.warn("Insufficient stock for product ID: {}. Cart ID: {}, Requested total: {}, Stock: {}",
                         product.getId(), cart.getId(), newQuantity, product.getStock());
-                  throw new BadRequestException("Stok yetersiz. Sepetinize en fazla " + (product.getStock() - existingItem.getQuantity()) + " adet daha ekleyebilirsiniz.");
-             }
-             existingItem.setQuantity(newQuantity);
-             cartItemRepository.save(existingItem);
-             logger.debug("Updated quantity for product ID: {} in cart ID: {} to {}", product.getId(), cart.getId(), newQuantity);
-         } else {
-             // Ürün sepette yok, yeni ekle
+                throw new BadRequestException("Stok yetersiz. Sepetinize en fazla " + (product.getStock() - existingItem.getQuantity()) + " adet daha ekleyebilirsiniz.");
+            }
+            existingItem.setQuantity(newQuantity);
+            // Cart save edilince cascade ile güncellenir (veya CartItemRepository ile de save edilebilir)
+             cartItemRepository.save(existingItem); // Doğrudan item'ı save edelim
+            logger.debug("Updated quantity for product ID: {} in cart ID: {} to {}", product.getId(), cart.getId(), newQuantity);
+        } else {
+            // Ürün sepette yok, yeni ekle
             if (product.getStock() < requestedQuantity) {
-                 logger.warn("Insufficient stock to add product ID: {}. Cart ID: {}, Requested: {}, Stock: {}",
+                logger.warn("Insufficient stock to add product ID: {}. Cart ID: {}, Requested: {}, Stock: {}",
                         product.getId(), cart.getId(), requestedQuantity, product.getStock());
-                 throw new BadRequestException("Stok yetersiz. Bu üründen en fazla " + product.getStock() + " adet ekleyebilirsiniz.");
-             }
-             CartItem newItem = new CartItem();
-             newItem.setProduct(product);
-             newItem.setQuantity(requestedQuantity);
-             //newItem.setCart(cart); // addItem helper metodu set ediyor
-             cart.addItem(newItem); // Bu CartItem'a cart referansını da set eder
-             // Dikkat: Cascade çalıştığı için Cart'ı save etmek CartItem'ı da save eder mi? Deneyelim.
-             // Eğer CartItem save edilmezse newItem'ı save etmek gerekir: cartItemRepository.save(newItem);
-             // Cart'ı tekrar save etmek updatedAt'i günceller.
-             logger.debug("Added new product ID: {} (Qty: {}) to cart ID: {}", product.getId(), requestedQuantity, cart.getId());
-         }
+                throw new BadRequestException("Stok yetersiz. Bu üründen en fazla " + product.getStock() + " adet ekleyebilirsiniz.");
+            }
+            CartItem newItem = new CartItem();
+            newItem.setProduct(product);
+            newItem.setQuantity(requestedQuantity);
+            // newItem.setCart(cart); // -> addItem bunu yapacak
+            cart.addItem(newItem); // Listeye ve ilişkiye ekle
+            // newItem save etmeye gerek yok, Cart save edilince cascade ile eklenecek.
+            logger.debug("Adding new product ID: {} (Qty: {}) to cart ID: {}", product.getId(), requestedQuantity, cart.getId());
+        }
 
-        // Güncellenmiş sepeti (veya kaydedilmiş sepeti) alıp dönelim.
-        // updatedAt'i güncellemek için cart'ı tekrar save edebiliriz.
-         Cart updatedCart = cartRepository.save(cart); // updatedAt'i günceller ve cascade çalıştırır
+        // Sepeti updatedAt için save et (cascade ile yeni item da save edilir)
+        Cart updatedCart = cartRepository.save(cart);
 
-        // Yeniden okuyup dönelim (item'ları ve ürünleri ile)
-         return getCartForCurrentUser();
-        // VEYA mapToResponse ile dönebiliriz ama totals hesaplanmalı
-         // return cartMapper.toCartResponse(updatedCart);
+        // DTO'yu döndür
+        return cartMapper.toCartResponse(updatedCart); // CartMapper total'leri hesaplar
     }
-
 
     @Override
     @Transactional
     public CartResponse updateCartItemQuantity(Long productId, UpdateCartItemRequest request) {
-         User user = getCurrentUser();
-        Cart cart = getOrCreateCartForUser(user);
+        User user = getCurrentUser();
+        Cart cart = getOrCreateCartEntityForUser(user); // Cart'ı itemlarıyla yükle
         int newQuantity = request.getQuantity();
-         logger.info("User ID: {} updating product ID: {} quantity to {} in cart ID: {}",
+        logger.info("User ID: {} updating product ID: {} quantity to {} in cart ID: {}",
                 user.getId(), productId, newQuantity, cart.getId());
 
-         CartItem itemToUpdate = cartItemRepository.findByCartIdAndProductId(cart.getId(), productId)
-                .orElseThrow(() -> new ResourceNotFoundException("Product not found in cart"));
+        CartItem itemToUpdate = cart.getItems().stream()
+                .filter(item -> item.getProduct() != null && item.getProduct().getId().equals(productId))
+                .findFirst()
+                .orElseThrow(() -> new ResourceNotFoundException("Product with id " + productId + " not found in cart"));
 
-         Product product = itemToUpdate.getProduct(); // İlişki LAZY ise product burada null olabilir, findById gerekebilir.
+        // Stok kontrolü (Product entity'sinin güncel hali gerekli olabilir)
+        Product product = productRepository.findById(productId)
+            .orElseThrow(()-> new ResourceNotFoundException("Product associated with cart item not found:" + productId)); // Veritabanından taze alalım
 
-        // Stock check (Önce product'ı bulalım)
-        if (product == null) { // Lazy loading handle
-             product = productRepository.findById(productId)
-                       .orElseThrow(() -> new ResourceNotFoundException("Product data inconsistency in cart")); // Bu durum olmamalı
-         }
-         if(product.getStock() < newQuantity){
-             logger.warn("Insufficient stock to update quantity for product ID: {}. Cart ID: {}, Requested: {}, Stock: {}",
-                       product.getId(), cart.getId(), newQuantity, product.getStock());
-               throw new BadRequestException("Stok yetersiz. Bu üründen en fazla " + product.getStock() + " adet seçebilirsiniz.");
-         }
+        if(product.getStock() < newQuantity){
+            logger.warn("Insufficient stock to update quantity for product ID: {}. Cart ID: {}, Requested: {}, Stock: {}",
+                      product.getId(), cart.getId(), newQuantity, product.getStock());
+              throw new BadRequestException("Stok yetersiz. Bu üründen en fazla " + product.getStock() + " adet seçebilirsiniz.");
+        }
 
         itemToUpdate.setQuantity(newQuantity);
-        cartItemRepository.save(itemToUpdate);
-         logger.debug("Quantity updated for product ID: {} in cart ID: {}", productId, cart.getId());
+        cartItemRepository.save(itemToUpdate); // Sadece item'ı save etmek yeterli
+        logger.debug("Quantity updated for product ID: {} in cart ID: {}", productId, cart.getId());
 
-        // updatedAt güncellemesi için cart'ı save et
-        cartRepository.save(cart);
-
-         return getCartForCurrentUser(); // Güncel sepeti oku ve dön
+        // Sepetin updatedAt'ini güncellemek için save etmeye GEREK YOK (Item güncellendi, Cart değişmedi)
+        // Ama DTO döndürmek için güncel cart entity lazım, tekrar çekebiliriz veya mevcutu mapleyebiliriz.
+        // Şimdilik mevcutu mapleyelim (updatedAt eski kalacak DTO'da).
+        // Veya cart'ı tekrar çek: cart = getOrCreateCartEntityForUser(user);
+        return cartMapper.toCartResponse(cart);
     }
 
 
     @Override
     @Transactional
     public CartResponse removeItemFromCart(Long productId) {
-         User user = getCurrentUser();
-         Cart cart = getOrCreateCartForUser(user);
-         logger.warn("User ID: {} removing product ID: {} from cart ID: {}", user.getId(), productId, cart.getId());
-
-        // Item'ı bul ve sil (veya direkt repository'den sil)
-         CartItem itemToRemove = cartItemRepository.findByCartIdAndProductId(cart.getId(), productId)
-                 .orElseThrow(() -> new ResourceNotFoundException("Product not found in cart"));
-
-        // Cascade ayarları Cart'ta var ama direkt CartItemRepository üzerinden de silebiliriz.
-        // İlişki yönetimi için Cart entity üzerinden remove daha iyi olabilir:
-         // cart.removeItem(itemToRemove); // Bu orphanRemoval=true ile item'ı silmeli
-         // cartRepository.save(cart);
-         cart.getItems().remove(itemToRemove); // <-- bunu mutlaka yap
-
-         // Direkt Repository ile silme:
-         cartItemRepository.delete(itemToRemove);
-         logger.info("Removed product ID: {} from cart ID: {}", productId, cart.getId());
-
-         // updatedAt güncellemesi için cart'ı save et
-          cartRepository.save(cart);
-
-         return getCartForCurrentUser(); // Güncel sepeti oku ve dön
-    }
-
-    @Override
-    public Cart getOrCreateCartForUserInternal() {
         User user = getCurrentUser();
-        return getOrCreateCartForUser(user);
-    }
-    
+        Cart cart = getOrCreateCartEntityForUser(user); // Yüklü Cart'ı al
+        logger.warn("User ID: {} removing product ID: {} from cart ID: {}", user.getId(), productId, cart.getId());
 
+        // Silinecek item'ı bul
+        CartItem itemToRemove = cart.getItems().stream()
+             .filter(item -> item.getProduct() != null && item.getProduct().getId().equals(productId))
+             .findFirst()
+             .orElseThrow(() -> new ResourceNotFoundException("Product with id " + productId + " not found in cart"));
+
+        // CascadeType.ALL ve orphanRemoval=true olduğu için listeden çıkarmak DB'den de silmeli
+        cart.removeItem(itemToRemove); // Bu item.setCart(null) yapar
+        Cart updatedCart = cartRepository.save(cart); // Cart'ı save edince item silinir mi? Evet orphanRemoval ile.
+
+        // Alternatif (Daha Garanti): Direkt CartItemRepository ile silmek
+        // cartItemRepository.delete(itemToRemove);
+
+        logger.info("Removed product ID: {} from cart ID: {}", productId, cart.getId());
+
+        // Dönen yanıt için, save ettiğimiz cart yeterli
+        return cartMapper.toCartResponse(updatedCart);
+    }
 
     @Override
-@Transactional
-public void clearCart() {
-    User user = getCurrentUser();
-    Cart cart = getOrCreateCartForUser(user);
-    logger.warn("User ID: {} clearing cart ID: {}", user.getId(), cart.getId());
+    @Transactional
+    public void clearCart() {
+        User user = getCurrentUser();
+        Optional<Cart> cartOpt = cartRepository.findByUserId(user.getId()); // Itemları fetch etmeye gerek yok
+        if(cartOpt.isPresent()){
+            Cart cart = cartOpt.get();
+            logger.warn("User ID: {} clearing cart ID: {}", user.getId(), cart.getId());
 
-    // 1. Önce cart objesinin içindeki item listesini temizle
-    cart.getItems().clear();
+            // Yöntem 1: orphanRemoval'a güvenmek (Cart'tan Item listesini temizleyip Cart'ı save etmek)
+            // cart.getItems().clear(); // Listeyi temizle
+            // cartRepository.save(cart); // Değişikliği kaydet
 
-    // 2. Veritabanından item'ları sil (ekstra güvence için)
-    cartItemRepository.deleteByCartId(cart.getId());
+            // Yöntem 2: Direkt CartItemRepository ile silmek (Daha net olabilir)
+            cartItemRepository.deleteByCartId(cart.getId());
 
-    // 3. Güncellenmiş cart'ı kaydet (silinmiş objeler olmadan)
-    cartRepository.save(cart);
-
-    logger.info("Cart ID: {} cleared.", cart.getId());
-}
-
+            logger.info("Cart ID: {} cleared.", cart.getId());
+            // Sepetin kendisi silinmez, içi boşalır.
+        } else {
+             logger.info("User ID: {} tried to clear cart, but no cart found.", user.getId());
+        }
+    }
 }

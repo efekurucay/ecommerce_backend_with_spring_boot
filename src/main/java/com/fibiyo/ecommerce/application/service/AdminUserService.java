@@ -16,5 +16,6 @@ public interface AdminUserService {
     UserResponse updateUserRole(Long userId, Role newRole);
 
     // Opsiyonel: Kullanıcı silme (Dikkatli kullanılmalı! İlişkili veriler ne olacak?)
-    // void deleteUser(Long userId);
+    // void deleteUser(Long userId); // Silme işlemi riskli olduğu için şimdilik implemente etmiyoruz
+
 }

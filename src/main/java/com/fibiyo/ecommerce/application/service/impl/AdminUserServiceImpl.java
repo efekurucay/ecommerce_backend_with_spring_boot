@@ -55,11 +55,16 @@ public class AdminUserServiceImpl implements AdminUserService {
         this.userMapper = userMapper;
     }
 
+
+
+
     @Override
     @Transactional(readOnly = true)
     public Page<UserResponse> findAllUsers(Pageable pageable, String searchTerm, Role role, Boolean isActive) {
         // 1. Yetki kontrolüne gerek yok, controller'da @PreAuthorize yeterli.
         // Veya burada checkAdminRole() çağrılabilir.
+            // checkAdminRole(); // Controller'da PreAuthorize varsa burada şart değil
+
         logger.debug("Admin fetching all users. Filters - Search: '{}', Role: {}, IsActive: {}, Pageable: {}",
                 searchTerm, role, isActive, pageable);
 
@@ -69,7 +74,8 @@ public class AdminUserServiceImpl implements AdminUserService {
                 .and(UserSpecifications.isActive(isActive));
 
          // 3. Repository Çağrısı
-        Page<User> userPage = userRepository.findAll(spec, pageable);
+        Page<User> userPage = userRepository.findAll(spec, pageable); // Specification'ı kullan
+            
         logger.debug("Found {} users matching criteria.", userPage.getTotalElements());
 
          // 4. DTO Dönüşümü
