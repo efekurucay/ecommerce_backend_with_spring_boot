@@ -1,7 +1,9 @@
 package com.fibiyo.ecommerce.config;
 
+import com.fibiyo.ecommerce.infrastructure.security.AuthEntryPointJwt;
 import com.fibiyo.ecommerce.infrastructure.security.JwtAuthenticationFilter; // Filter import
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod; // HTTP metodları için
@@ -30,11 +32,12 @@ public class SecurityConfig {
     @Autowired
     private JwtAuthenticationFilter jwtAuthenticationFilter; // Kendi JWT filtremiz
 
-    // Opsiyonel: Unauthorized hataları yakalamak için özel entry point
-    // @Autowired
-    // private AuthEntryPointJwt unauthorizedHandler;
 
-    // Şifreleme Bean'i (BCrypt önerilir)
+    // Opsiyonel: Unauthorized hataları yakalamak için özel entry point
+    @Autowired
+    private AuthEntryPointJwt unauthorizedHandler;
+
+  // Şifreleme Bean'i (BCrypt önerilir)
     @Bean
     public PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder();
@@ -60,7 +63,7 @@ public class SecurityConfig {
             // .exceptionHandling(exception -> exception.authenticationEntryPoint(unauthorizedHandler))
             // Oturum yönetimini STATELESS yap (JWT kullanacağımız için server state tutmayacak)
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-            
+            .exceptionHandling(exception -> exception.authenticationEntryPoint(unauthorizedHandler))
             // İstek Yetkilendirme Kuralları
             .authorizeHttpRequests(authz -> authz
                 // Auth endpoint'leri (login, register) herkese açık
@@ -87,13 +90,18 @@ public class SecurityConfig {
     }
 
 
+    @Value("${app.cors.allowed-origins}") // bu eklenecek
+    private String allowedOrigins; // bu eklenecek
+
+
     
     // CORS Ayarları Bean'i
     @Bean
     CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
         // Angular uygulamasının çalıştığı adrese izin ver (örn: localhost:4200)
-        configuration.setAllowedOrigins(Arrays.asList("http://localhost:4200", "http://127.0.0.1:4200"));
+        configuration.setAllowedOriginPatterns(Arrays.asList(allowedOrigins.split(","))); //yerine bu gelecek
+
         // İzin verilen HTTP metodları
         configuration.setAllowedMethods(Arrays.asList("GET","POST", "PUT", "DELETE", "PATCH", "OPTIONS"));
         // İzin verilen Header'lar (Authorization ve Content-Type önemli)

@@ -6,6 +6,9 @@ import com.fibiyo.ecommerce.application.mapper.*; // Mappers
 import com.fibiyo.ecommerce.application.service.CartService;
 import com.fibiyo.ecommerce.domain.entity.*; // Entities
 import com.fibiyo.ecommerce.infrastructure.persistence.repository.*; // Repositories
+
+import jakarta.persistence.OptimisticLockException;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -95,34 +98,36 @@ public class CartServiceImpl implements CartService {
                 .filter(item -> item.getProduct() != null && item.getProduct().getId().equals(product.getId()))
                 .findFirst();
 
-        if (existingItemOpt.isPresent()) {
-            // Ürün sepette var, miktarını güncelle
-            CartItem existingItem = existingItemOpt.get();
-            int newQuantity = existingItem.getQuantity() + requestedQuantity;
-            if (product.getStock() < newQuantity) {
-                logger.warn("Insufficient stock for product ID: {}. Cart ID: {}, Requested total: {}, Stock: {}",
-                        product.getId(), cart.getId(), newQuantity, product.getStock());
-                throw new BadRequestException("Stok yetersiz. Sepetinize en fazla " + (product.getStock() - existingItem.getQuantity()) + " adet daha ekleyebilirsiniz.");
-            }
-            existingItem.setQuantity(newQuantity);
-            // Cart save edilince cascade ile güncellenir (veya CartItemRepository ile de save edilebilir)
-             cartItemRepository.save(existingItem); // Doğrudan item'ı save edelim
-            logger.debug("Updated quantity for product ID: {} in cart ID: {} to {}", product.getId(), cart.getId(), newQuantity);
-        } else {
-            // Ürün sepette yok, yeni ekle
-            if (product.getStock() < requestedQuantity) {
-                logger.warn("Insufficient stock to add product ID: {}. Cart ID: {}, Requested: {}, Stock: {}",
-                        product.getId(), cart.getId(), requestedQuantity, product.getStock());
-                throw new BadRequestException("Stok yetersiz. Bu üründen en fazla " + product.getStock() + " adet ekleyebilirsiniz.");
-            }
-            CartItem newItem = new CartItem();
-            newItem.setProduct(product);
-            newItem.setQuantity(requestedQuantity);
-            // newItem.setCart(cart); // -> addItem bunu yapacak
-            cart.addItem(newItem); // Listeye ve ilişkiye ekle
-            // newItem save etmeye gerek yok, Cart save edilince cascade ile eklenecek.
-            logger.debug("Adding new product ID: {} (Qty: {}) to cart ID: {}", product.getId(), requestedQuantity, cart.getId());
-        }
+                try {
+                    if (existingItemOpt.isPresent()) {
+                        CartItem existingItem = existingItemOpt.get();
+                        int newQuantity = existingItem.getQuantity() + requestedQuantity;
+                        if (product.getStock() < newQuantity) {
+                            throw new BadRequestException("Stok yetersiz. Sepetinize en fazla " + (product.getStock() - existingItem.getQuantity()) + " adet daha ekleyebilirsiniz.");
+                        }
+                        existingItem.setQuantity(newQuantity);
+                        cartItemRepository.save(existingItem);
+                        productRepository.save(product); // Optimistic Lock kontrolü
+                        logger.debug("Updated quantity for product ID: {} in cart ID: {} to {}", product.getId(), cart.getId(), newQuantity);
+                    } else {
+                        if (product.getStock() < requestedQuantity) {
+                            throw new BadRequestException("Stok yetersiz. Bu üründen en fazla " + product.getStock() + " adet ekleyebilirsiniz.");
+                        }
+                        CartItem newItem = new CartItem();
+                        newItem.setProduct(product);
+                        newItem.setQuantity(requestedQuantity);
+                        cart.addItem(newItem);
+                        productRepository.save(product); // Optimistic Lock kontrolü
+                        logger.debug("Adding new product ID: {} (Qty: {}) to cart ID: {}", product.getId(), requestedQuantity, cart.getId());
+                    }
+                } catch (OptimisticLockException e) {
+                    logger.error("Stok çakışması: {}", e.getMessage());
+                    throw new ConflictException("Stok durumu değişti, lütfen tekrar deneyin.");
+                }
+
+
+
+
 
         // Sepeti updatedAt için save et (cascade ile yeni item da save edilir)
         Cart updatedCart = cartRepository.save(cart);
@@ -130,6 +135,12 @@ public class CartServiceImpl implements CartService {
         // DTO'yu döndür
         return cartMapper.toCartResponse(updatedCart); // CartMapper total'leri hesaplar
     }
+
+
+
+
+
+
 
     @Override
     @Transactional
@@ -154,9 +165,17 @@ public class CartServiceImpl implements CartService {
                       product.getId(), cart.getId(), newQuantity, product.getStock());
               throw new BadRequestException("Stok yetersiz. Bu üründen en fazla " + product.getStock() + " adet seçebilirsiniz.");
         }
+        try {
+            itemToUpdate.setQuantity(newQuantity);
+            cartItemRepository.save(itemToUpdate);
+            productRepository.save(product); // Versiyon kontrolü için
+        } catch (OptimisticLockException e) {
+            logger.error("Stok çakışması: {}", e.getMessage());
+            throw new ConflictException("Stok durumu değişti, lütfen tekrar deneyin.");
+        }
 
-        itemToUpdate.setQuantity(newQuantity);
-        cartItemRepository.save(itemToUpdate); // Sadece item'ı save etmek yeterli
+
+
         logger.debug("Quantity updated for product ID: {} in cart ID: {}", productId, cart.getId());
 
         // Sepetin updatedAt'ini güncellemek için save etmeye GEREK YOK (Item güncellendi, Cart değişmedi)

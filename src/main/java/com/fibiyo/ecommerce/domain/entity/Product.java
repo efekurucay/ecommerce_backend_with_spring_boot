@@ -53,6 +53,10 @@ public class Product {
     @Column(nullable = false)
     private Integer stock = 0; // Varsayılan stok
 
+
+    @Version
+    private Long version;
+
     @Size(max = 100)
     @Column(length = 100, unique = true, nullable = true)
     private String sku; // Stock Keeping Unit (Opsiyonel)

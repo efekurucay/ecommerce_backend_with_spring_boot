@@ -39,6 +39,16 @@ public class GlobalExceptionHandler {
         return new ResponseEntity<>(apiResponse, HttpStatus.BAD_REQUEST);
     }
 
+
+
+    @ExceptionHandler(ConflictException.class)
+@ResponseStatus(HttpStatus.CONFLICT)
+public ResponseEntity<ApiResponse> handleConflictException(ConflictException ex, WebRequest request) {
+    logger.warn("Conflict Error: {}", ex.getMessage());
+    ApiResponse apiResponse = new ApiResponse(false, ex.getMessage());
+    return new ResponseEntity<>(apiResponse, HttpStatus.CONFLICT);
+}
+
     @ExceptionHandler(ForbiddenException.class)
     @ResponseStatus(HttpStatus.FORBIDDEN)
     public ResponseEntity<ApiResponse> handleForbiddenException(ForbiddenException ex, WebRequest request) {
