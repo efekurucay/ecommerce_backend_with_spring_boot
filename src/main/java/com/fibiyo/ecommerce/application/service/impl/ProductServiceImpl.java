@@ -9,6 +9,7 @@ import com.fibiyo.ecommerce.application.exception.ForbiddenException;
 import com.fibiyo.ecommerce.application.exception.ResourceNotFoundException;
 import com.fibiyo.ecommerce.application.mapper.ProductMapper;
 import com.fibiyo.ecommerce.application.service.ProductService;
+import com.fibiyo.ecommerce.application.service.StorageService;
 import com.fibiyo.ecommerce.application.util.SlugUtils;
 import com.fibiyo.ecommerce.domain.entity.Category;
 import com.fibiyo.ecommerce.domain.entity.Product;
@@ -26,21 +27,33 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
+import org.springframework.web.multipart.MultipartFile; 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import static com.fibiyo.ecommerce.infrastructure.persistence.specification.ProductSpecifications.*;
 
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class ProductServiceImpl implements ProductService {
-
+    private final Logger logger = LoggerFactory.getLogger(ProductServiceImpl.class);
     private final ProductRepository  productRepository;
     private final CategoryRepository categoryRepository;
     private final UserRepository     userRepository;
     private final ProductMapper      productMapper;
+    private final StorageService storageService; // StorageService'i inject et
 private final NotificationService notificationService; // bu eklenecek
 
     /* ---------- Helper ---------- */
+
+         // URL'den dosya adını çıkaran basit bir helper
+     private String extractFilenameFromUrl(String url){
+            if (url == null || !url.contains("/")) {
+                return url;
+            }
+            return url.substring(url.lastIndexOf('/') + 1);
+        }
+  
 
     private User getCurrentUser() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
@@ -63,6 +76,51 @@ private final NotificationService notificationService; // bu eklenecek
             throw new ForbiddenException("Bu işlem için yetkiniz yok.");
     }
 
+
+
+    @Override
+    @Transactional
+    public ProductResponse updateProductImage(Long productId, MultipartFile file) {
+         // Yetki kontrolü: Seller veya Admin mi?
+        User currentUser = getCurrentUser(); // veya metodu çağır
+         logger.info("User '{}' attempting to upload image for product ID: {}", currentUser.getUsername(), productId);
+
+        Product product = productRepository.findById(productId)
+               .orElseThrow(() -> new ResourceNotFoundException("Product not found with id: " + productId));
+
+        // Sahiplik veya Admin kontrolü
+        // checkSellerOwnershipOrAdmin(product); // Bu helper metodu kullanabiliriz
+// Spring security ve SpEL kullanarak yaptık buna gerek kalmadı. 
+         // Eski dosyayı silmek isteyebiliriz (opsiyonel)
+         String oldFilename = product.getImageUrl() != null ? extractFilenameFromUrl(product.getImageUrl()) : null;
+
+
+         // Yeni dosyayı kaydet
+         String newFilename = storageService.store(file);
+         // Kaydedilen dosyanın URL'sini al
+         String newFileUrl = storageService.generateUrl(newFilename);
+
+         // Product entity'sini güncelle ve kaydet
+         product.setImageUrl(newFileUrl);
+         Product updatedProduct = productRepository.save(product);
+         logger.info("Image updated for product ID: {}. New image URL: {}", productId, newFileUrl);
+
+         // Eski dosya varsa ve yeni dosya başarılı kaydedildiyse eskiyi sil
+         if(oldFilename != null && !oldFilename.equals(newFilename)){
+              try {
+                  storageService.delete(oldFilename);
+                   logger.info("Old image file deleted: {}", oldFilename);
+              } catch (Exception e){
+                   // Silme hatası kritik değil, loglamak yeterli.
+                  logger.warn("Could not delete old image file '{}': {}", oldFilename, e.getMessage());
+              }
+         }
+
+         return productMapper.toProductResponse(updatedProduct);
+     }
+
+
+ 
     /* ---------- Public Ops ---------- */
 
     @Override @Transactional(readOnly = true)

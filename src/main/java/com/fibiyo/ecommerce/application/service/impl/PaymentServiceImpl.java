@@ -5,8 +5,10 @@ import com.fibiyo.ecommerce.application.dto.StripeCheckoutSessionResponse;
 import com.fibiyo.ecommerce.application.exception.BadRequestException;
 import com.fibiyo.ecommerce.application.exception.ForbiddenException;
 import com.fibiyo.ecommerce.application.exception.ResourceNotFoundException;
+import com.fibiyo.ecommerce.application.service.EmailService;
 import com.fibiyo.ecommerce.application.service.NotificationService; // Bildirim göndermek için
 import com.fibiyo.ecommerce.application.service.PaymentService;
+import com.fibiyo.ecommerce.application.service.SubscriptionService;
 import com.fibiyo.ecommerce.domain.entity.*; // Tüm ilgili entity'ler
 import com.fibiyo.ecommerce.domain.enums.NotificationType;
 import com.fibiyo.ecommerce.domain.enums.OrderStatus;
@@ -44,6 +46,9 @@ public class PaymentServiceImpl implements PaymentService {
     private final CartItemRepository cartItemRepository; // Sepeti temizlemek için
     private final UserRepository userRepository;
     private final NotificationService notificationService;
+    private final EmailService emailService; 
+    private SubscriptionService subscriptionService;
+
 
     @Value("${stripe.webhook.secret}")
     private String endpointSecret; // Stripe webhook secret key
@@ -55,13 +60,17 @@ public class PaymentServiceImpl implements PaymentService {
                               CartRepository cartRepository,
                               CartItemRepository cartItemRepository,
                               UserRepository userRepository,
-                              NotificationService notificationService) {
+                              NotificationService notificationService,
+                              EmailService emailService,
+                              SubscriptionService subscriptionService) {
+        this.subscriptionService = subscriptionService;
         this.orderRepository = orderRepository;
         this.paymentRepository = paymentRepository;
         this.cartRepository = cartRepository;
         this.cartItemRepository = cartItemRepository;
         this.userRepository = userRepository;
         this.notificationService = notificationService;
+        this.emailService = emailService;
     }
 
     // Helper - Mevcut giriş yapmış kullanıcıyı getirir
@@ -173,162 +182,9 @@ public class PaymentServiceImpl implements PaymentService {
              logger.error("Unexpected error during Stripe session creation for Order ID: {}", orderId, e);
              throw new RuntimeException("Ödeme oturumu oluşturulurken beklenmedik bir hata oluştu.");
          }
-
-         // ... (Metodun geri kalanı aynı) ...
          
     }
 
-
- 
-//     @Override
-//     @Transactional // İçeride DB işlemleri olduğu için Transactional olmalı
-//     public void handleStripeWebhook(String payload, String sigHeader) {
-//         Event event;
-//          if(endpointSecret == null || endpointSecret.isBlank()){
-//              logger.error("Stripe webhook secret is not configured!");
-//               throw new RuntimeException("Webhook secret is not configured."); // Sistemi bilgilendir
-//          }
-
-//         // 1. İmza Doğrulama
-//         try {
-//             event = Webhook.constructEvent(payload, sigHeader, this.endpointSecret);
-//         } catch (SignatureVerificationException e) {
-//             logger.error("Webhook signature verification failed!", e);
-//             throw new BadRequestException("Invalid webhook signature.");
-//          } catch (Exception e){ // Payload parse hatası vb.
-//               logger.error("Error parsing webhook event payload.", e);
-//               throw new BadRequestException("Invalid webhook payload.");
-//          }
-
-//         // 2. Event Datasından Obje Alma
-//         EventDataObjectDeserializer dataObjectDeserializer = event.getDataObjectDeserializer();
-        
-        
-//         // StripeObject stripeObject = null;
-//         // if (dataObjectDeserializer.getObject().isPresent()) {
-//         //     stripeObject = dataObjectDeserializer.getObject().get();
-//         // } else {
-//         //      logger.error("Webhook event data deserialization failed for event ID: {}", event.getId());
-//         //      // Bu durumda genellikle 200 OK döneriz ki Stripe tekrar göndermesin ama hatayı loglarız.
-//         //      return; // Veya hata fırlatılabilir ama Stripe tekrar dener.
-//         // }
-//         StripeObject stripeObject = null;
-// if (dataObjectDeserializer.getObject().isPresent()) {
-//     stripeObject = dataObjectDeserializer.getObject().get();
-// } else {
-//     logger.error("Webhook event data deserialization failed for event ID: {}", event.getId());
-//     return;
-// }
-
-
-
-
-
-       
-//    /*     // 3. Event Tipine Göre İşleme
-//         switch (event.getType()) {
-//             case "checkout.session.completed":
-//                 logger.info("Processing checkout.session.completed for Session ID: {}", session.getId());
-//                  // Metadata'dan sipariş ID'sini alalım (Önce Session, sonra PaymentIntent meta)
-//                 String orderIdStr = Optional.ofNullable(session.getMetadata().get("order_id"))
-//                          .orElseGet(() -> Optional.ofNullable(session.getPaymentIntentObject()) // Sessiondan PI objesini al
-//                                 .map(PaymentIntent::getMetadata) // PI'nın metadatasını al
-//                                 .map(meta -> meta.get("order_id")) // metadatadan order_id'yi al
-//                                 .orElse(null)); // Hiçbiri yoksa null
-
-//                  if (orderIdStr != null) {
-//                     fulfillOrder(Long.parseLong(orderIdStr), session);
-//                 } else {
-//                     logger.error("Webhook Error: Order ID missing in metadata for session ID: {}", session.getId());
-//                     // Hata fırlatmak yerine loglayıp devam etmek webhook tekrarını önler.
-//                  }
-//                 break;
-
-//             case "payment_intent.payment_failed":
-//                  PaymentIntent paymentIntentFailed = (PaymentIntent) stripeObject;
-//                  logger.warn("Processing payment_intent.payment_failed for PaymentIntent ID: {}", paymentIntentFailed.getId());
-//                  // Metadata'dan sipariş ID'sini al
-//                  String failedOrderIdStr = paymentIntentFailed.getMetadata().get("order_id");
-//                 if (failedOrderIdStr != null) {
-//                      handleFailedPayment(Long.parseLong(failedOrderIdStr), paymentIntentFailed);
-//                 } else {
-//                     logger.error("Webhook Error: Order ID missing in metadata for failed PaymentIntent ID: {}", paymentIntentFailed.getId());
-//                 }
-//                  break;
-
-//              // Ödeme iadesi webhook'u
-//             case "charge.refunded":
-//                 Charge charge = (Charge) stripeObject; // İade edilen Charge objesi
-//                  // Genellikle iade işlemini biz başlattıysak (Admin panelinden vb.) durumu zaten güncelleriz.
-//                  // Bu webhook, Stripe dashboard'dan manuel yapılan iadeler için de gelebilir.
-//                  // Charge -> PaymentIntent -> Metadata -> orderId yolunu izlemek gerekebilir.
-//                  logger.info("Processing charge.refunded for Charge ID: {}", charge.getId());
-//                 // TODO: İade durumunu handle edecek mantığı ekle
-//                  // String refundedOrderId = getOrderIdFromCharge(charge);
-//                  // handleRefundedPayment(refundedOrderId, charge);
-//                  break;
-
-
-//             // İleride eklenebilecek diğer önemli eventler:
-//             // - payment_intent.succeeded (Bazen checkout.session.completed'den önce veya yerine gelebilir)
-//              // - invoice.payment_succeeded, invoice.payment_failed (Abonelikler için)
-//              // - customer.subscription.deleted, customer.subscription.updated (Abonelikler için)
-
-//             default:
-//                 logger.warn("Unhandled Stripe event type: {}", event.getType());
-//                  // Bilinmeyen event tipi için hata fırlatmayalım, sadece loglayalım.
-//          }
-//     }
-// */
-
-// // 3. Event Tipine Göre İşleme
-
-// // 3. Event Tipine Göre İşleme
-// switch (event.getType()) {
-//     case "checkout.session.completed":
-//         if (!(stripeObject instanceof Session stripeSession)) {
-//             logger.error("Unexpected object type for checkout.session.completed: {}", stripeObject.getClass());
-//             return;
-//         }
-//         logger.info("Processing checkout.session.completed for Session ID: {}", stripeSession.getId());
-//         String orderIdStr = Optional.ofNullable(stripeSession.getMetadata().get("order_id"))
-//                 .orElseGet(() -> Optional.ofNullable(stripeSession.getPaymentIntentObject())
-//                         .map(PaymentIntent::getMetadata)
-//                         .map(meta -> meta.get("order_id"))
-//                         .orElse(null));
-//         if (orderIdStr != null) {
-//             fulfillOrder(Long.parseLong(orderIdStr), stripeSession);
-//         } else {
-//             logger.error("Webhook Error: Order ID missing in metadata for session ID: {}", stripeSession.getId());
-//         }
-//         break;
-
-//     case "payment_intent.payment_failed":
-//         if (!(stripeObject instanceof PaymentIntent paymentIntentFailed)) {
-//             logger.error("Unexpected object type for payment_intent.payment_failed: {}", stripeObject.getClass());
-//             return;
-//         }
-//         logger.warn("Processing payment_intent.payment_failed for PaymentIntent ID: {}", paymentIntentFailed.getId());
-//         String failedOrderIdStr = paymentIntentFailed.getMetadata().get("order_id");
-//         if (failedOrderIdStr != null) {
-//             handleFailedPayment(Long.parseLong(failedOrderIdStr), paymentIntentFailed);
-//         } else {
-//             logger.error("Webhook Error: Order ID missing in metadata for failed PaymentIntent ID: {}", paymentIntentFailed.getId());
-//         }
-//         break;
-
-//     case "charge.refunded":
-//         if (!(stripeObject instanceof Charge charge)) {
-//             logger.error("Unexpected object type for charge.refunded: {}", stripeObject.getClass());
-//             return;
-//         }
-//         logger.info("Processing charge.refunded for Charge ID: {}", charge.getId());
-//         break;
-
-//     default:
-//         logger.warn("Unhandled Stripe event type: {}", event.getType());
-//         break;
-// } }
 
 
 @Override
@@ -510,8 +366,21 @@ if (objectOptional.isPresent()) {
 
         // 5. Müşteriye Bildirim Gönder
        // ... (Order durumu PROCESSING, Payment COMPLETED yapıldıktan sonra) ...
+// 5. Müşteriye Sipariş Onay E-postası Gönder
+try {
+    String subject = "Fibiyo Siparişiniz #" + orderId + " Onaylandı";
+    // TODO: Daha detaylı bir sipariş özeti HTML e-postası oluşturulabilir.
+     String textBody = "Merhaba " + customer.getFirstName() + ",\n\n"
+              + "#" + orderId + " numaralı siparişiniz başarıyla alındı ve ödemeniz onaylandı.\n"
+             + "Sipariş detaylarınızı hesabınızdan takip edebilirsiniz.\n\n"
+              + "Teşekkürler!";
+      emailService.sendSimpleMessage(customer.getEmail(), subject, textBody);
+  } catch (Exception e) {
+       logger.error("[FULFILLMENT-ERROR] Failed to send order confirmation email for Order ID {}: {}", orderId, e.getMessage(), e);
+  }
 
-// Müşteriye bildirim gönder
+
+// 6- Müşteriye bildirim gönder
 try {
     notificationService.createNotification( // Inject edilmiş olmalı
         updatedOrder.getCustomer(),

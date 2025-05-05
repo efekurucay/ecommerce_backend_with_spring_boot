@@ -101,6 +101,31 @@
   <artifactId>stripe-java</artifactId>
   <version>29.1.0</version>
 </dependency>
+<!-- WebClient için Spring WebFlux -->
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-webflux</artifactId>
+</dependency>
+
+
+<!-- OkHttp (OpenAIClient tarafından kullanılır, genellikle transitif gelir ama eklemek iyi olabilir) -->
+<dependency>
+    <groupId>com.squareup.okhttp3</groupId>
+    <artifactId>okhttp</artifactId>
+    <!-- Kütüphanenin gerektirdiği sürümü kontrol et, genellikle 4.x -->
+    <version>4.12.0</version>
+</dependency>
+
+<!-- OpenAI Resmi Java Kütüphanesi (Güncel sürümü kontrol et) -->
+<dependency>
+    <groupId>com.openai</groupId>
+    <artifactId>openai-java</artifactId>
+    <version>0.31.0</version> <!-- Veya en güncel stabil sürüm -->
+</dependency>
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-mail</artifactId>
+</dependency>
         <!-- Lombok -->
         <dependency>
             <groupId>org.projectlombok</groupId>

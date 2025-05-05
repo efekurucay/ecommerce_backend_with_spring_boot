@@ -55,7 +55,8 @@ public class Product {
 
 
     @Version
-    private Long version;
+    @Column(nullable = false)
+    private Long version= 0L; // JPA versiyon kontrolü için (optimistic locking)
 
     @Size(max = 100)
     @Column(length = 100, unique = true, nullable = true)

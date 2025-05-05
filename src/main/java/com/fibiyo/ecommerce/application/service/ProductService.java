@@ -4,6 +4,7 @@ import com.fibiyo.ecommerce.application.dto.ProductRequest;
 import com.fibiyo.ecommerce.application.dto.ProductResponse;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.web.multipart.MultipartFile;
 
 public interface ProductService {
 
@@ -11,6 +12,9 @@ public interface ProductService {
     Page<ProductResponse> findActiveAndApprovedProducts(Pageable pageable, Long categoryId, String searchTerm);
     ProductResponse findActiveAndApprovedProductById(Long id);
     ProductResponse findActiveAndApprovedProductBySlug(String slug);
+
+    ProductResponse updateProductImage(Long productId, MultipartFile file);
+
 
     /* ----- Seller ----- */
     ProductResponse createProductBySeller(ProductRequest productRequest);
@@ -27,4 +31,7 @@ public interface ProductService {
     ProductResponse rejectProduct(Long productId);
     void            deleteProductByAdmin(Long productId);
     ProductResponse setAdminProductActiveStatus(Long productId, boolean isActive);
+
+
+
 }

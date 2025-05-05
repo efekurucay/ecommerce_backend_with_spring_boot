@@ -11,6 +11,7 @@ import com.fibiyo.ecommerce.application.exception.ForbiddenException;
 import com.fibiyo.ecommerce.application.exception.ResourceNotFoundException;
 import com.fibiyo.ecommerce.application.mapper.OrderMapper;
 import com.fibiyo.ecommerce.application.service.CartService; // Inject edilecek
+import com.fibiyo.ecommerce.application.service.EmailService;
 import com.fibiyo.ecommerce.application.service.NotificationService; // Inject edilecek
 import com.fibiyo.ecommerce.application.service.OrderService;
 // import com.fibiyo.ecommerce.application.service.CouponService; // İhtiyaç olursa inject edilebilir
@@ -55,6 +56,7 @@ public class OrderServiceImpl implements OrderService {
     private final NotificationService notificationService; // Bildirim gönderme
     private final OrderMapper orderMapper;
     private final ObjectMapper objectMapper;
+    private final EmailService emailService; // Email gönderme (sipariş onayı için)
 
 
     // --- Helper Methods ---
@@ -129,7 +131,8 @@ public class OrderServiceImpl implements OrderService {
 
 
     @Autowired
-    public OrderServiceImpl(OrderRepository orderRepository, OrderItemRepository orderItemRepository, ProductRepository productRepository, UserRepository userRepository, CouponRepository couponRepository, CartService cartService, CartItemRepository cartItemRepository, NotificationService notificationService, OrderMapper orderMapper, ObjectMapper objectMapper) {
+    public OrderServiceImpl(OrderRepository orderRepository, OrderItemRepository orderItemRepository, ProductRepository productRepository, UserRepository userRepository, CouponRepository couponRepository, CartService cartService, CartItemRepository cartItemRepository, NotificationService notificationService, OrderMapper orderMapper, ObjectMapper objectMapper
+    , EmailService emailService) {
         this.orderRepository = orderRepository;
         this.orderItemRepository = orderItemRepository;
         this.productRepository = productRepository;
@@ -140,6 +143,8 @@ public class OrderServiceImpl implements OrderService {
         this.notificationService = notificationService; // Bildirim için eklendi
         this.orderMapper = orderMapper;
         this.objectMapper = objectMapper;
+        this.emailService = emailService; // Email gönderme için eklendi
+        
     }
 
 
@@ -250,6 +255,19 @@ public class OrderServiceImpl implements OrderService {
                    savedOrder.getId(), customer.getId(), savedOrder.getFinalAmount()); // finalAmount'ı kontrol et!
 
         // Bildirim Gönderme (Order Placed)
+
+
+        try {
+            String subject = "Sipariş Onayı - Fibiyo";
+            String textBody = "Sayın " + customer.getFirstName() + ",\n\n" +
+                    "#" + savedOrder.getId() + " numaralı siparişiniz başarıyla oluşturulmuştur.\n" +
+                    "Siparişinizi 'Siparişlerim' sayfasından takip edebilirsiniz.\n\n" +
+                    "Teşekkür ederiz.";
+            emailService.sendSimpleMessage(customer.getEmail(), subject, textBody);
+        } catch (Exception e) {
+            logger.error("Failed to send order confirmation email to {}: {}", customer.getEmail(), e.getMessage());
+        }
+
         notificationService.createNotification(customer, "Siparişiniz #" + savedOrder.getId() + " başarıyla oluşturuldu.", "/orders/my/" + savedOrder.getId(), NotificationType.ORDER_UPDATE); // bu eklenecek
 
         // TODO: Ödeme Başlatma (eğer otomatik olacaksa)

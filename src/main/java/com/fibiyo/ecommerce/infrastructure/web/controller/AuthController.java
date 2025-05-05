@@ -1,9 +1,11 @@
 package com.fibiyo.ecommerce.infrastructure.web.controller;
 
 import com.fibiyo.ecommerce.application.dto.ApiResponse;
+import com.fibiyo.ecommerce.application.dto.ForgotPasswordRequest;
 import com.fibiyo.ecommerce.application.dto.JwtAuthenticationResponse;
 import com.fibiyo.ecommerce.application.dto.LoginRequest;
 import com.fibiyo.ecommerce.application.dto.RegisterRequest;
+import com.fibiyo.ecommerce.application.dto.ResetPasswordRequest;
 import com.fibiyo.ecommerce.application.service.AuthService;
 import com.fibiyo.ecommerce.domain.entity.User;
 import jakarta.validation.Valid; // Bean Validation için
@@ -56,6 +58,24 @@ public class AuthController {
     // public ResponseEntity<?> handleOAuth2Callback(...)
 
     // TODO: Şifremi unuttum, şifre sıfırlama endpoint'leri eklenecek
+
+    // --- Şifremi Unuttum Endpoint'i ---
+    @PostMapping("/forgot-password")
+    public ResponseEntity<ApiResponse> forgotPassword(@Valid @RequestBody ForgotPasswordRequest request) {
+    logger.info("POST /api/auth/forgot-password requested for email: {}", request.getEmail());
+     // Servis hata fırlatmak yerine sessizce işlemi bitireceği için her zaman OK dönebiliriz.
+     authService.processForgotPassword(request.getEmail());
+     String message = "Eğer girdiğiniz e-posta adresi sistemimizde kayıtlıysa, şifre sıfırlama linki gönderilmiştir.";
+     return ResponseEntity.ok(new ApiResponse(true, message));
+}
+    // --- Şifre Sıfırlama Endpoint'i ---
+    @PostMapping("/reset-password")
+    public ResponseEntity<ApiResponse> resetPassword(@Valid @RequestBody ResetPasswordRequest request) {
+    logger.info("POST /api/auth/reset-password requested with token (partial): {}", request.getToken().substring(0, Math.min(request.getToken().length(), 8))+"...");
+    authService.resetPassword(request);
+    return ResponseEntity.ok(new ApiResponse(true, "Şifreniz başarıyla sıfırlandı. Şimdi giriş yapabilirsiniz."));
+}
+
 
     // TODO: E-posta doğrulama endpoint'leri eklenecek
 }

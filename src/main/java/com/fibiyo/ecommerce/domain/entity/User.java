@@ -146,6 +146,16 @@ public class User {
     // İlişkiler (Listeler) üzerinden hashCode/equals hesaplaması performansı düşürebilir ve döngülere neden olabilir.
     // Eğer sorun yaşanırsa Lombok @EqualsAndHashCode(exclude = {"productsSold", "orders", "reviews", "notifications", "wishlistItems"}) kullanılabilir.
     // Veya sadece 'id' üzerinden kontrol eden özel equals/hashCode yazılabilir.
+
+
+@Column(name = "password_reset_token", nullable = true, length = 100) // Token uzunluğunu ayarla
+private String passwordResetToken;
+
+@Column(name = "password_reset_token_expiry", nullable = true)
+private LocalDateTime passwordResetTokenExpiry;
+
+
+
 }
 
 // Açıklamalar:

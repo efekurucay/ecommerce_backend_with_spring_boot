@@ -5,6 +5,9 @@ import com.fibiyo.ecommerce.application.dto.ProductRequest;
 import com.fibiyo.ecommerce.application.dto.ProductResponse;
 import com.fibiyo.ecommerce.application.service.ProductService;
 import jakarta.validation.Valid;
+
+
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -15,11 +18,14 @@ import org.springframework.data.domain.Sort; // Sıralama yönü
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize; // Yetkilendirme için
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
-
+import org.springframework.web.multipart.MultipartFile; // MultipartFile import
+import com.fibiyo.ecommerce.application.exception.BadRequestException; // Hata için
 
 @RestController
 @RequestMapping("/api/products")
+
 public class ProductController {
 
     private static final Logger logger = LoggerFactory.getLogger(ProductController.class);
@@ -58,6 +64,26 @@ public class ProductController {
          return ResponseEntity.ok(product);
     }
 
+
+     // --- Image Upload Endpoint ---
+     
+     @PostMapping("/{productId}/image") // veya /upload-image
+     @PreAuthorize("hasRole('ADMIN') or @productSecurity.hasPermission(#productId, authentication)")
+     
+     public ResponseEntity<ProductResponse> uploadProductImage(
+             @PathVariable Long productId,
+             @RequestParam("file") MultipartFile file // "file" form-data key'i ile gönderilmeli
+     ) {
+          logger.info("POST /api/products/{}/image requested", productId);
+          // Basit dosya kontrolü
+           if (file == null || file.isEmpty()) {
+               throw new BadRequestException("Yüklenecek dosya bulunamadı.");
+           }
+           // Boyut ve tip kontrolü StorageService içinde yapılıyor.
+
+           ProductResponse updatedProduct = productService.updateProductImage(productId, file);
+          return ResponseEntity.ok(updatedProduct); // Güncellenmiş ürünü dön
+     }
     // --- Seller Endpoints ---
 
     @PostMapping
